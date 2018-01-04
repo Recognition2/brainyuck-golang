@@ -30,8 +30,8 @@ func TestStack_Complete(t *testing.T) {
 
 func TestIncrementIndex(t *testing.T) {
 	s := GenState()
-	s.IncrementIndex()
-	if s.index != 1 {
+	s.IncrementIndex(1200)
+	if s.index != 1200 {
 		t.Errorf("Incrementing index failed")
 	}
 }

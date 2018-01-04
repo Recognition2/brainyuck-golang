@@ -15,6 +15,7 @@ type State struct {
 	jumpFwd map[uint]uint
 	instr   uint
 	stats   Stats
+	output  string
 }
 
 type Stats struct {
@@ -29,13 +30,25 @@ type Stats struct {
 	skipped int
 }
 
+func (s Stats) Total() int {
+	return s.lt +
+		s.gt +
+		s.plus +
+		s.minus +
+		s.dot +
+		s.comma +
+		s.startL +
+		s.endL +
+		s.skipped
+}
+
 func GenState() State {
 	return State{
 		// Data buffer
 		data:  make([]uint8, BUFSIZE),
 		index: 0,
 		// Stack to correctly implement loops
-		stack:   make(Stack, STACKSIZE),
+		stack:   make(Stack, 0),
 		jumpFwd: make(map[uint]uint, STACKSIZE),
 		instr:   0,
 	}
@@ -52,6 +65,11 @@ func (s *State) printStats() {
 	fmt.Printf(" start L:\t%d\n", s.stats.startL)
 	fmt.Printf(" End L:  \t%d\n", s.stats.endL)
 	fmt.Printf(" Skipped:\t%d\n", s.stats.skipped)
+	fmt.Printf(" Total number of executions cycles: %d\n", s.stats.Total())
+}
+
+func (s *State) Zero() {
+	s.data[s.index] = 0
 }
 func (s *State) PrintState() {
 	fmt.Print("Logging s: \n Data: ")
@@ -64,43 +82,49 @@ func (s *State) PrintState() {
 	fmt.Printf(" Current instr: %d\n", s.instr)
 }
 
-func (s *State) IncrementIndex(bf string) { // >
-	if s.index < BUFSIZE {
-		s.index++
+func (s *State) IncrementIndex(n uint) { // >
+	if s.index < BUFSIZE-n {
+		s.index += n
+	} else {
+		s.index = BUFSIZE - 1
 	}
 	s.stats.gt++
 }
 
-func (s *State) DecrementIndex(bf string) { // <
-	if s.index > 0 {
-		s.index--
+func (s *State) DecrementIndex(n uint) { // <
+	if s.index >= n {
+		s.index -= n
+	} else { // We need to reduce the index by the maximum amount.
+		s.index = 0
 	}
+
 	s.stats.lt++
 }
 
-func (s *State) IncrementData() {
-	if s.data[s.index] < math.MaxUint8 {
-		s.data[s.index]++
+func (s *State) IncrementData(n uint8) {
+	if s.data[s.index] < math.MaxUint8-n-1 {
+		s.data[s.index] += n
+	} else {
+		s.data[s.index] = math.MaxUint8 - 1
 	}
 	s.stats.plus++
 }
 
-func (s *State) DecrementData() {
-	if s.data[s.index] > 0 {
-		s.data[s.index]--
+func (s *State) DecrementData(n uint8) {
+	if s.data[s.index] >= n {
+		s.data[s.index] -= n
+	} else {
+		s.data[s.index] = 0
 	}
 	s.stats.minus++
 }
 
-func (s *State) StartLoop(bf string) {
-	// Normal (non-opt) behaviour
-
+func (s *State) StartLoop(bf []byte) {
 	if s.data[s.index] != 0 { // Enter loop; save return address on stack
 		s.stack.Push(s.instr)
 	} else { // Skip the loop
 		s.instr = s.jumpFwd[s.instr]
 	}
-	s.stats.startL++
 }
 
 func (s *State) EndLoop() {
@@ -108,7 +132,6 @@ func (s *State) EndLoop() {
 		logE.Println("Cannot resolve corresponding bracket, stack is empty")
 		os.Exit(1)
 	}
-
 	if s.data[s.index] != 0 { // Jump back
 		s.instr = s.stack.Get() // Because we add one later
 	} else { // End the loop
@@ -117,7 +140,8 @@ func (s *State) EndLoop() {
 	s.stats.endL++
 }
 func (s *State) Print() {
-	fmt.Printf("%c", s.data[s.index])
+	s.output += string(s.data[s.index])
+	//fmt.Printf("%c", s.data[s.index])
 	s.stats.dot++
 }
 func (s *State) Input() {
