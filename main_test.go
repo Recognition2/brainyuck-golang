@@ -30,7 +30,7 @@ func TestStack_Complete(t *testing.T) {
 
 func TestIncrementIndex(t *testing.T) {
 	s := GenState()
-	s.IncrementIndex(1200)
+	s.IndexInc(1200)
 	if s.index != 1200 {
 		t.Errorf("Incrementing index failed")
 	}
@@ -48,5 +48,40 @@ func BenchmarkCompleteProgram(b *testing.B) {
 
 	for n := 0; n < b.N; n++ {
 		main()
+	}
+}
+
+func runHelper(s string) State {
+	var state = GenState()
+
+	bfCode, jumpfwd := optimize([]byte(s))
+	state.jumpFwd = jumpfwd
+
+	for state.instr < uint(len(bfCode)) {
+		bfExecute(bfCode, &state)
+	}
+	return state
+}
+
+func TestIncrement(t *testing.T) {
+	prog := "++++."
+	state := runHelper(prog)
+	if state.output != string(4) {
+		t.Errorf("Cannot Increment reliably")
+	}
+}
+
+func TestLoops(t *testing.T) {
+	prog := "+++[>++<-]>."
+	state := runHelper(prog)
+	if state.output != string(6) {
+		t.Errorf("Error in the way loops are created")
+	}
+}
+
+func BenchmarkSmallProgram(b *testing.B) {
+	prog := "+++[>++<-]>."
+	for n := 0; n < b.N; n++ {
+		runHelper(prog)
 	}
 }

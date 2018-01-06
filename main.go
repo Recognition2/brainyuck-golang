@@ -1,13 +1,44 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
+	"time"
+)
+
+type Op uint8
+
+// Define all operations
+const (
+	// Traditional ops
+	DataDec Op = iota
+	DataInc
+	IndexDec
+	IndexInc
+	Print
+	Input
+	StartLoop // Special
+	EndLoop
+
+	// Operations that take an argument
+	DataDecArg
+	DataIncArg
+	IndexDecArg
+	IndexIncArg
+
+	// Advanced ops
+	Zero
+	Move
+	Copy
+	Plus
+	Minus
+	Mult
+	Exp
+	Divide
 )
 
 const BUFSIZE = 30000
@@ -20,6 +51,7 @@ var (
 
 func main() {
 	fmt.Println("Running")
+	startTime := time.Now()
 
 	var filename = flag.String("filename", "test.bf", "Path to file containing BrainYuck code")
 	flag.Parse()
@@ -35,100 +67,179 @@ func main() {
 	bfCode, jumpfwd := optimize(rawBF)
 	state.jumpFwd = jumpfwd
 
+	initTime := time.Since(startTime)
 	fmt.Println("Done optimizing, running...")
 	// Run all instructions
 	for state.instr < uint(len(bfCode)) {
 		bfExecute(bfCode, &state)
 	}
-
 	fmt.Printf("\n%s\n", state.output)
+	runTime := time.Since(startTime)
+	fmt.Printf("Optimizing took %s.\nTotal took %s\n", initTime, runTime)
 	state.printStats()
 	return
 }
 
-func optimize(s []byte) ([]byte, map[uint]uint) {
-	valid := "><+-[].,"
-	optimizedCode := bytes.Buffer{}
+func startsWith(s []byte, i int, substr string) bool {
+	subByte := []byte(substr)
+	// Iterate over the whole substring
+	for l := 0; l < len(subByte); l++ {
+		// If out of bounds of beginning of string, or they are not equal
+		if i+l > len(s) || s[i+l] != subByte[l] {
+			return false
+		}
+	}
+	return true
+}
+
+func optimize(s []byte) ([]Op, map[uint]uint) {
+	const valid = "><+-[].,"
+	var optimized []Op
 
 	skipLoopMap := make(map[uint]uint, STACKSIZE) // Build map for skipping loops
 	stack := make(Stack, 0)
 
-	newIndex := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 
 		if !strings.Contains(valid, string(c)) {
-			continue // Illegal character
+			continue // Illegal characters should be ignored. This is mandatory to allow our intermediate
+			// representation
 		}
 
-		switch c {
-		case '[':
-			// Try to optimize `[-]` and `[+]` away
-			if s[i+2] == ']' && (s[i+1] == '-' || s[i+1] == '+') {
-				optimizedCode.WriteByte('0')
-				newIndex++
-				i += 2
-				continue
-			}
-			stack.Push(uint(newIndex)) // Store "Begin" address
-			optimizedCode.WriteByte(c)
-		case ']':
-			skipLoopMap[stack.Pop()] = uint(newIndex) // map begin address to end address
-			optimizedCode.WriteByte(c)
-		case '>', '<', '-', '+':
+		switch {
+		// Try to optimize `[-]` and `[+]` away
+		case startsWith(s, i, "[-]"), startsWith(s, i, "[+]"):
+			optimized = append(optimized, Zero)
+			i += 2
+
+		// Try to optimize `[->+<]` away, which evaluates [a b] to [0 a+b]
+		case startsWith(s, i, "[->+<]"):
+			optimized = append(optimized, Plus)
+			i += 5
+
+		// Subtraction, evaluates [x, y] to [x-y, 0]
+		case startsWith(s, i, ">[-<->]<"):
+			optimized = append(optimized, Minus)
+			i += 7
+
+		case c == '[':
+			// Try to optimize `[->+<]` away, which evaluates [a b] to [0 a+b]
+
+			// Traditional `[` operator: start a loop.
+			stack.Push(uint(len(optimized))) // Store "Begin" address
+			optimized = append(optimized, StartLoop)
+
+		case c == ']':
+			skipLoopMap[stack.Pop()] = uint(len(optimized)) // map begin address to end address
+			optimized = append(optimized, EndLoop)
+
+		case c == '>', c == '<', c == '-', c == '+':
 			// Try to find matching ones afterwards and collapse that
-			count := 0
-			for s[i+count] == c && count < 255 {
+			var count uint8 = 1
+			for s[i+int(count)] == c && count < 255 {
 				count++
-			} // Count now contains the amount of chars equal to current character
-			optimizedCode.WriteByte(c)
-			optimizedCode.WriteByte(byte(count)) // This is an illegal char according to BF parser
-			newIndex++                           // Skip the "amount" byte
-			i += count - 1
+			}
+			// Count now contains the amount of chars equal to current character
+			if count == 1 {
+				optimized = append(optimized, toOp(c))
+			} else {
+				optimized = append(optimized, toOpWithArg(c))
+				optimized = append(optimized, Op(count)) // This is not an actual Op.
+				i += int(count) - 1                      // Skip over all iterations
+				// -1 because the loop adds one
+			}
+
 		default:
-			optimizedCode.WriteByte(c)
+			optimized = append(optimized, toOp(c))
 		}
-		newIndex++
 	}
-	return optimizedCode.Bytes(), skipLoopMap
+	return optimized, skipLoopMap
 }
 
-func executeWithCount(c byte, n uint, state *State) {
+func toOp(c uint8) Op {
 	switch c {
-	case '>':
-		state.IncrementIndex(n)
 	case '<':
-		state.DecrementIndex(n)
+		return IndexDec
+	case '>':
+		return IndexInc
 	case '+':
-		state.IncrementData(uint8(n))
+		return DataInc
 	case '-':
-		state.DecrementData(uint8(n))
+		return DataDec
+	case '.':
+		return Print
+	case ',':
+		return Input
 	default:
-		logE.Println("Cannot execute irrelevant byte")
+		logE.Printf("This is not a valid Op: %d!", c)
+		return IndexDec
+	}
+}
+func toOpWithArg(c uint8) Op {
+	switch c {
+	case '<':
+		return IndexDecArg
+	case '>':
+		return IndexIncArg
+	case '+':
+		return DataIncArg
+	case '-':
+		return DataDecArg
+	default:
+		logE.Printf("This is not a valid Op: %d!", c)
+		return IndexDec
 	}
 }
 
-func bfExecute(bf []byte, state *State) {
-	switch c := bf[state.instr]; c {
-	case '>', '<', '+', '-':
-		n := bf[state.instr+1]
-		executeWithCount(c, uint(n), state)
-		//fmt.Printf("%c%d ", c, bf[state.instr+1])
-		state.instr += 2
-		return
-	case '.':
+func bfExecute(bf []Op, state *State) {
+	switch op := bf[state.instr]; op {
+	case IndexDec:
+		state.IndexDec(1)
+	case IndexDecArg:
+		n := uint(bf[state.instr+1])
+		state.IndexDec(n)
+		state.instr++
+	case IndexInc:
+		state.IndexInc(1)
+	case IndexIncArg:
+		n := uint(bf[state.instr+1])
+		state.IndexInc(n)
+		state.instr++
+	case DataDec:
+		state.DataDec(1)
+	case DataDecArg:
+		n := uint(bf[state.instr+1])
+		state.DataDec(n)
+		state.instr++
+	case DataInc:
+		state.DataInc(1)
+	case DataIncArg:
+		n := uint(bf[state.instr+1])
+		state.DataInc(n)
+		state.instr++
+	case Print:
 		state.Print()
-	case ',':
+	case Input:
 		state.Input()
-	case '[':
+	case StartLoop:
 		state.StartLoop(bf)
-	case ']':
+	case EndLoop:
 		state.EndLoop()
-	case '0':
+
+	// Special operations
+	case Zero:
 		state.Zero()
+	case Plus:
+		state.Plus()
+	case Minus:
+		state.Minus()
+	case Mult:
+		state.Mult()
+
 	default:
-		logE.Printf("This cannot happen: c = %d", c)
+		logE.Printf("This cannot happen: op = %d", op)
 	}
-	//fmt.Printf("%c ", bf[state.instr])
+	//fmt.Printf("%op ", bf[state.instr])
 	state.instr++
 }

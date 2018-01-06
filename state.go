@@ -68,9 +68,6 @@ func (s *State) printStats() {
 	fmt.Printf(" Total number of executions cycles: %d\n", s.stats.Total())
 }
 
-func (s *State) Zero() {
-	s.data[s.index] = 0
-}
 func (s *State) PrintState() {
 	fmt.Print("Logging s: \n Data: ")
 
@@ -82,7 +79,9 @@ func (s *State) PrintState() {
 	fmt.Printf(" Current instr: %d\n", s.instr)
 }
 
-func (s *State) IncrementIndex(n uint) { // >
+// Normal BF instructions
+
+func (s *State) IndexInc(n uint) { // >
 	if s.index < BUFSIZE-n {
 		s.index += n
 	} else {
@@ -91,7 +90,7 @@ func (s *State) IncrementIndex(n uint) { // >
 	s.stats.gt++
 }
 
-func (s *State) DecrementIndex(n uint) { // <
+func (s *State) IndexDec(n uint) { // <
 	if s.index >= n {
 		s.index -= n
 	} else { // We need to reduce the index by the maximum amount.
@@ -101,7 +100,8 @@ func (s *State) DecrementIndex(n uint) { // <
 	s.stats.lt++
 }
 
-func (s *State) IncrementData(n uint8) {
+func (s *State) DataInc(N uint) {
+	n := uint8(N)
 	if s.data[s.index] < math.MaxUint8-n-1 {
 		s.data[s.index] += n
 	} else {
@@ -110,7 +110,8 @@ func (s *State) IncrementData(n uint8) {
 	s.stats.plus++
 }
 
-func (s *State) DecrementData(n uint8) {
+func (s *State) DataDec(N uint) {
+	n := uint8(N)
 	if s.data[s.index] >= n {
 		s.data[s.index] -= n
 	} else {
@@ -119,7 +120,7 @@ func (s *State) DecrementData(n uint8) {
 	s.stats.minus++
 }
 
-func (s *State) StartLoop(bf []byte) {
+func (s *State) StartLoop(bf []Op) {
 	if s.data[s.index] != 0 { // Enter loop; save return address on stack
 		s.stack.Push(s.instr)
 	} else { // Skip the loop
@@ -149,4 +150,24 @@ func (s *State) Input() {
 	fmt.Scanf("%c", &c)
 	s.data[s.index] = c[0]
 	s.stats.comma++
+}
+
+// Advanced BF instructions
+func (s *State) Zero() {
+	s.data[s.index] = 0
+}
+
+func (s *State) Plus() {
+	s.data[s.index+1] += s.data[s.index]
+	s.data[s.index] = 0
+}
+
+func (s *State) Minus() {
+	s.DataDec(uint(s.data[s.index] + 1))
+	s.data[s.index+1] = 0
+}
+
+func (s *State) Mult() {
+	s.data[s.index+2] = s.data[s.index] * s.data[s.index+1]
+	s.data[s.index] = 0
 }
