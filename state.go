@@ -49,7 +49,7 @@ func GenState() State {
 		index: 0,
 		// Stack to correctly implement loops
 		stack:   make(Stack, 0),
-		jumpFwd: make(map[uint]uint, STACKSIZE),
+		jumpFwd: make(map[uint]uint, 0),
 		instr:   0,
 	}
 }
@@ -87,7 +87,9 @@ func (s *State) IndexInc(n uint) { // >
 	} else {
 		s.index = BUFSIZE - 1
 	}
-	s.stats.gt++
+	if statistics {
+		s.stats.gt++
+	}
 }
 
 func (s *State) IndexDec(n uint) { // <
@@ -97,7 +99,9 @@ func (s *State) IndexDec(n uint) { // <
 		s.index = 0
 	}
 
-	s.stats.lt++
+	if statistics {
+		s.stats.lt++
+	}
 }
 
 func (s *State) DataInc(N uint) {
@@ -107,7 +111,9 @@ func (s *State) DataInc(N uint) {
 	} else {
 		s.data[s.index] = math.MaxUint8 - 1
 	}
-	s.stats.plus++
+	if statistics {
+		s.stats.plus++
+	}
 }
 
 func (s *State) DataDec(N uint) {
@@ -117,14 +123,19 @@ func (s *State) DataDec(N uint) {
 	} else {
 		s.data[s.index] = 0
 	}
-	s.stats.minus++
+	if statistics {
+		s.stats.minus++
+	}
 }
 
-func (s *State) StartLoop(bf []Op) {
+func (s *State) StartLoop() {
 	if s.data[s.index] != 0 { // Enter loop; save return address on stack
 		s.stack.Push(s.instr)
 	} else { // Skip the loop
 		s.instr = s.jumpFwd[s.instr]
+	}
+	if statistics {
+		s.stats.startL++
 	}
 }
 
@@ -138,18 +149,24 @@ func (s *State) EndLoop() {
 	} else { // End the loop
 		s.stack.Pop() // Pop value from stack.
 	}
-	s.stats.endL++
+	if statistics {
+		s.stats.endL++
+	}
 }
 func (s *State) Print() {
 	s.output += string(s.data[s.index])
 	//fmt.Printf("%c", s.data[s.index])
-	s.stats.dot++
+	if statistics {
+		s.stats.dot++
+	}
 }
 func (s *State) Input() {
 	var c string
 	fmt.Scanf("%c", &c)
 	s.data[s.index] = c[0]
-	s.stats.comma++
+	if statistics {
+		s.stats.comma++
+	}
 }
 
 // Advanced BF instructions
