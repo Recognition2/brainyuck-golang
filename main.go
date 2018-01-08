@@ -38,7 +38,7 @@ func main() {
 	bfCode, jumpfwd := optimize(&rawBF)
 	state.jumpFwd = jumpfwd
 
-	//bfCode = optimizeLoops(bfCode)
+	bfCode = optimizeLoops(bfCode, jumpfwd)
 	fmt.Println("Done optimizing, running...")
 	initTime := time.Since(startTime)
 
@@ -60,85 +60,84 @@ func main() {
 	return
 }
 
-//func optimizeLoops(ops []Op) []Op {
-//	for i := 0; i < len(ops); i++ {
-//		op := ops[i]
-//		if op == StartLoop {
-//			end := beunSearch(ops, i)
-//			simpleLoop, err := simplifyLoop(ops[i:end])
-//			if err != nil {
-//				continue
-//			}
-//			if len(simpleLoop) > end-i {
-//				logE.Printf("What good does")
-//			}
-//			//logE.Printf("Current operation is GOOD: %v\n", ops[end] == EndLoop)
-//			//logE.Printf("Correct one is -1: %v, +1: %v", ops[end-1] == EndLoop, ops[end+1] == EndLoop)
-//			//panic("aaaaa")
-//		}
-//	}
-//	return ops
-//}
-//func simplifyLoop(ops []Op) ([]Op, error) {
-//	index := 0
-//	changeToBaseNum := 0
-//
-//	change := make([]uint8, BUFSIZE)
-//	for i := 0; i < len(ops); i++ {
-//		op := ops[i]
-//		switch op {
-//		case Print, Input:
-//			return ops, errors.New("loop contains IO, cannot optimize")
-//		case StartLoop, EndLoop:
-//			return ops, errors.New("Cannot optimize loops with sub-loops yet")
-//		case IndexDec:
-//			index--
-//		case IndexDecArg:
-//			index -= int(ops[i+1])
-//			i++
-//		case IndexInc:
-//			index++
-//		case IndexIncArg:
-//			index += int(ops[i+1])
-//			i++
-//		case DataDec:
-//			if index == 0 {
-//				changeToBaseNum--
-//			}
-//		case DataDecArg:
-//			if index == 0 {
-//				changeToBaseNum -= int(ops[i+1])
-//				i++
-//			}
-//		case DataInc:
-//			if index == 0 {
-//				changeToBaseNum++
-//			}
-//		case DataIncArg:
-//			if index == 0 {
-//				changeToBaseNum += int(ops[i+1])
-//				i++
-//			}
-//		}
-//	}
-//	if index == 0 && changeToBaseNum == -1 {
-//		// This loop can be optimized! We can just apply it `n` times!
-//
-//	}
-//}
-//
-////
-//func beunSearch(s []Op, i int) int {
-//	count := 1
-//	for i += 1; count > 0; i++ {
-//		if s[i] == StartLoop {
-//			count++
-//		} else if s[i] == EndLoop {
-//			count--
-//		}
-//	}
-//	return i - 1
-//}
+func optimizeLoops(ops []Op, skipLoopMap map[uint]uint) []Op {
+	var i uint
+	for i = 0; i < uint(len(ops)); i++ {
+		op := ops[i]
+		if op == StartLoop {
+			end := skipLoopMap[i]
+			content := ops[i:end]
+			whatLoop, whatHappensMap := analyseLoop(content)
+			var newOps = make([]Op, 0)
+			switch whatLoop {
+			case NoLoop:
+				continue
+			case ZeroIndexLoop:
+				newOps = optimizeZeroIndex(whatHappensMap)
+			default:
+			}
+			//logE.Printf("Current operation is GOOD: %v\n", ops[end] == EndLoop)
+			//logE.Printf("Correct one is -1: %v, +1: %v", ops[end-1] == EndLoop, ops[end+1] == EndLoop)
+			//panic("aaaaa")
+
+			// If the loop was optimized, replace the old code with the new code.
+			ops = append(append(ops[:i], newOps...), ops[end+1:]...)
+		}
+	}
+	return ops
+}
+
+func analyseLoop(ops []Op) (loop, map[int]int) {
+	index := 0
+	change := make(map[int]int, BUFSIZE)
+
+	for i := 0; i < len(ops); i++ {
+		op := ops[i]
+		switch op {
+		case Print, Input:
+			return NoLoop, nil
+		case StartLoop, EndLoop:
+			return NoLoop, nil
+		case IndexDec:
+			index--
+		case IndexDecArg:
+			index -= int(ops[i+1])
+			i++
+		case IndexInc:
+			index++
+		case IndexIncArg:
+			index += int(ops[i+1])
+			i++
+		case DataDec:
+			change[index]--
+		case DataDecArg:
+			change[index] -= int(ops[i+1])
+		case DataInc:
+			change[index]++
+		case DataIncArg:
+			change[index] += int(ops[i+1])
+
+		}
+	}
+	if index == 0 && change[0] == -1 {
+		// This loop can be optimized! We can just apply it `n` times!
+		// The indices will not change during the loop
+		return ZeroIndexLoop, change
+	}
+	return NoLoop, nil
+}
+
+func beunSearch(s []Op, i int) int {
+	count := 1
+	for i += 1; count > 0; i++ {
+		if s[i] == StartLoop {
+			count++
+		} else if s[i] == EndLoop {
+			count--
+		}
+	}
+	return i - 1
+}
 
 func startsWith(s []byte, i int, substr string) bool {
 	subByte := []byte(substr)
@@ -152,10 +151,10 @@ func startsWith(s []byte, i int, substr string) bool {
 	return true
 }
 
-func optimize(b *[]byte) ([]Op, map[uint]uint) {
+func optimize(b *[]byte) ([]Routine, map[uint]uint) {
 	s := *b
 	const valid = "><+-[].,"
-	var optimized []Op
+	var optimized []Routine
 
 	skipLoopMap := make(map[uint]uint, STACKSIZE) // Build map for skipping loops
 	stack := make(Stack, 0)
@@ -183,6 +182,20 @@ func optimize(b *[]byte) ([]Op, map[uint]uint) {
 		case startsWith(s, i, ">[-<->]<"):
 			optimized = append(optimized, Minus)
 			i += 7
+
+			// Copy a value
+		case startsWith(s, i, "[->+>+<<]>>[-<<+>>]<<"):
+			optimized = append(optimized, Copy)
+			i += 20
+
+			// Exponentiation
+		case startsWith(s, i, ">>+<[->[-<<[->>>+>+<<<<]>>>>[-<<<<+>>>>]<<]>[-<+>]<<]<"):
+			optimized = append(optimized, Exp)
+			i += 53
+
+		case startsWith(s, i, "[>[->+>+<<]>[-<<-[>]>>>[<[-<->]<[>]>>[[-]>>+<]>-<]<<]>>>+<<[-<<+>>]<<<]>>>>>[-<<<<<+>>>>>]<<<<<"):
+			optimized = append(optimized, Divide)
+			i += 94
 
 		case c == '[':
 			// Try to optimize `[->+<]` away, which evaluates [a b] to [0 a+b]
@@ -218,73 +231,43 @@ func optimize(b *[]byte) ([]Op, map[uint]uint) {
 	return optimized, skipLoopMap
 }
 
-func toOp(c uint8) Op {
-	switch c {
-	case '<':
-		return IndexDec
-	case '>':
-		return IndexInc
-	case '+':
-		return DataInc
-	case '-':
-		return DataDec
-	case '.':
-		return Print
-	case ',':
-		return Input
-	default:
-		logE.Printf("This is not a valid Op: %d!", c)
-		return IndexDec
-	}
-}
-
-func toOpWithArg(c uint8) Op {
-	switch c {
-	case '<':
-		return IndexDecArg
-	case '>':
-		return IndexIncArg
-	case '+':
-		return DataIncArg
-	case '-':
-		return DataDecArg
-	default:
-		logE.Printf("This is not a valid Op: %d!", c)
-		return IndexDec
-	}
-}
-
-func isOpWithArg(op Op) bool {
-	return op >= DataDecArg && op <= IndexIncArg
-}
-
 func bfExecute(ptr *[]Op, state *State) {
+
 	bf := *ptr
 	switch op := bf[state.instr]; op {
 	case IndexDec:
 		state.IndexDec(1)
-	case IndexDecArg:
-		n := uint(bf[state.instr+1])
-		state.IndexDec(n)
-		state.instr++
 	case IndexInc:
 		state.IndexInc(1)
-	case IndexIncArg:
-		n := uint(bf[state.instr+1])
-		state.IndexInc(n)
-		state.instr++
 	case DataDec:
-		state.DataDec(1)
-	case DataDecArg:
-		n := uint(bf[state.instr+1])
-		state.DataDec(n)
-		state.instr++
+		state.DataDec(1, 0)
 	case DataInc:
-		state.DataInc(1)
-	case DataIncArg:
-		n := uint(bf[state.instr+1])
-		state.DataInc(n)
+		state.DataInc(1, 0)
+
+	case IndexDecArg:
+		state.IndexDec(uint(bf[state.instr+1]))
 		state.instr++
+	case IndexIncArg:
+		state.IndexInc(uint(bf[state.instr+1]))
+		state.instr++
+	case DataDecArg:
+		state.DataDec(uint(bf[state.instr+1]), 0)
+		state.instr++
+	case DataIncArg:
+		state.DataInc(uint(bf[state.instr+1]), 0)
+		state.instr++
+
+	case DataDecOffset:
+		state.DataDec(1, state.offset)
+	case DataIncOffset:
+		state.DataInc(1, state.offset)
+	case DataDecArgOffset:
+		state.DataDec(uint(bf[state.instr+1]), state.offset)
+		state.instr++
+	case DataIncArgOffset:
+		state.DataInc(uint(bf[state.instr+1]), state.offset)
+		state.instr++
+
 	case Print:
 		state.Print()
 	case Input:
@@ -297,12 +280,21 @@ func bfExecute(ptr *[]Op, state *State) {
 		// Special operations
 	case Zero:
 		state.Zero()
+	case Offset:
+		state.Offset(int8(bf[state.instr+1]))
+		state.instr++
 	case Plus:
 		state.Plus()
 	case Minus:
 		state.Minus()
 	case Mult:
 		state.Mult()
+	case Copy:
+		state.Copy()
+	case Exp:
+		state.Exp()
+	case Divide:
+		state.Divide()
 
 	default:
 		logE.Printf("This cannot happen: op = %d", op)

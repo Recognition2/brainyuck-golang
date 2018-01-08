@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"os"
 )
 
 const STACKSIZE = 500
@@ -16,6 +15,7 @@ type State struct {
 	instr   uint
 	stats   Stats
 	output  string
+	offset  int8
 }
 
 type Stats struct {
@@ -104,24 +104,28 @@ func (s *State) IndexDec(n uint) { // <
 	}
 }
 
-func (s *State) DataInc(N uint) {
+func (s *State) DataInc(N uint, offset int8) {
 	n := uint8(N)
-	if s.data[s.index] < math.MaxUint8-n-1 {
-		s.data[s.index] += n
+	offsetIndex := int(s.index) + int(offset)
+	//s.data[s.index] += n
+	if s.data[offsetIndex] < math.MaxUint8-n-1 {
+		s.data[offsetIndex] += n
 	} else {
-		s.data[s.index] = math.MaxUint8 - 1
+		s.data[offsetIndex] = math.MaxUint8 - 1
 	}
 	if statistics {
 		s.stats.plus++
 	}
 }
 
-func (s *State) DataDec(N uint) {
+func (s *State) DataDec(N uint, offset int8) {
 	n := uint8(N)
-	if s.data[s.index] >= n {
-		s.data[s.index] -= n
+	offsetIndex := int(s.index) + int(offset)
+	//s.data[s.index] -= n
+	if s.data[offsetIndex] >= n {
+		s.data[offsetIndex] -= n
 	} else {
-		s.data[s.index] = 0
+		s.data[offsetIndex] = 0
 	}
 	if statistics {
 		s.stats.minus++
@@ -130,7 +134,9 @@ func (s *State) DataDec(N uint) {
 
 func (s *State) StartLoop() {
 	if s.data[s.index] != 0 { // Enter loop; save return address on stack
-		s.stack.Push(s.instr)
+		// Explicitly create copy of instruction counter
+		i := s.instr
+		s.stack.Push(i) // Push the (pass-by-value) copy.
 	} else { // Skip the loop
 		s.instr = s.jumpFwd[s.instr]
 	}
@@ -140,10 +146,10 @@ func (s *State) StartLoop() {
 }
 
 func (s *State) EndLoop() {
-	if len(s.stack) == 0 {
-		logE.Println("Cannot resolve corresponding bracket, stack is empty")
-		os.Exit(1)
-	}
+	//if s.stack.Len() == 0 {
+	//	logE.Println("Cannot resolve corresponding bracket, stack is empty")
+	//	os.Exit(1)
+	//}
 	if s.data[s.index] != 0 { // Jump back
 		s.instr = s.stack.Get() // Because we add one later
 	} else { // End the loop
@@ -155,7 +161,7 @@ func (s *State) EndLoop() {
 }
 func (s *State) Print() {
 	s.output += string(s.data[s.index])
-	//fmt.Printf("%c", s.data[s.index])
+	fmt.Printf("%c", s.data[s.index])
 	if statistics {
 		s.stats.dot++
 	}
@@ -174,17 +180,45 @@ func (s *State) Zero() {
 	s.data[s.index] = 0
 }
 
+func (s *State) Offset(offset int8) {
+	s.offset = offset
+}
+
 func (s *State) Plus() {
-	s.data[s.index+1] += s.data[s.index]
-	s.data[s.index] = 0
+	s.DataInc(uint(s.data[s.index]), 1)
+	s.Zero()
 }
 
 func (s *State) Minus() {
-	s.DataDec(uint(s.data[s.index] + 1))
+	s.DataDec(uint(s.data[s.index]+1), 0)
 	s.data[s.index+1] = 0
 }
 
 func (s *State) Mult() {
-	s.data[s.index+2] = s.data[s.index] * s.data[s.index+1]
-	s.data[s.index] = 0
+	s.DataInc(uint(s.data[s.index]*s.data[s.index+1]), 2)
+	s.Zero()
+}
+
+func (s *State) Copy() {
+	s.DataInc(uint(s.data[s.index]), 1)
+}
+
+func (s *State) Exp() {
+	s.data[s.index+1] = Pow(s.data[s.index], s.data[s.index+1])
+	s.data[s.index+1] = 0
+}
+
+func Pow(x uint8, y uint8) (result uint8) {
+	var i uint8
+	result = 1
+	for i = 0; i < y; i++ {
+		result *= x
+	}
+	return
+}
+
+func (s *State) Divide() {
+	x := s.data[s.index]
+	s.data[s.index] = x / s.data[s.index+1]
+	s.data[s.index+1] = x % s.data[s.index+1]
 }

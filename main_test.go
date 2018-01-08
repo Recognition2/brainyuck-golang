@@ -4,30 +4,6 @@ import (
 	"testing"
 )
 
-func TestStack_Pop(t *testing.T) {
-	s := make(Stack, 1)
-	s[0] = 120
-	if a := s.Pop(); a != 120 {
-		t.Errorf("Popping failed. Got %d, want %d", a, 120)
-	}
-}
-
-func TestStack_Push(t *testing.T) {
-	s := make(Stack, 0)
-	s.Push(1234)
-	if a := s[0]; a != 1234 {
-		t.Errorf("Pushing failed. Got %d, want %d", a, 1234)
-	}
-}
-
-func TestStack_Complete(t *testing.T) {
-	s := make(Stack, 0)
-	s.Push(120)
-	if a := s.Pop(); a != 120 {
-		t.Errorf("Cannot reliably store data on the stack, want %d, got %d.", 120, a)
-	}
-}
-
 func TestIncrementIndex(t *testing.T) {
 	s := GenState()
 	s.IndexInc(1200)
@@ -53,12 +29,12 @@ func BenchmarkCompleteProgram(b *testing.B) {
 
 func runHelper(s string) State {
 	var state = GenState()
-
-	bfCode, jumpfwd := optimize([]byte(s))
+	b := []byte(s)
+	bfCode, jumpfwd := optimize(&b)
 	state.jumpFwd = jumpfwd
 
 	for state.instr < uint(len(bfCode)) {
-		bfExecute(bfCode, &state)
+		bfExecute(&bfCode, &state)
 	}
 	return state
 }
@@ -75,7 +51,7 @@ func TestLoops(t *testing.T) {
 	prog := "+++[>++<-]>."
 	state := runHelper(prog)
 	if state.output != string(6) {
-		t.Errorf("Error in the way loops are created")
+		t.Errorf("Error in the way loops are created, wanted %d found %d", 6, int(state.output[0]))
 	}
 }
 
