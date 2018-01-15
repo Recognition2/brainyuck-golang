@@ -2,20 +2,18 @@ package main
 
 import (
 	"fmt"
-	"math"
 )
 
 const STACKSIZE = 500
 
 type State struct {
-	data    []uint8
-	index   uint
-	stack   Stack
-	jumpFwd map[uint]uint
-	instr   uint
-	stats   Stats
-	output  string
-	offset  int8
+	data   []uint8
+	index  uint
+	stack  Stack
+	instr  uint
+	stats  Stats
+	output string
+	offset int
 }
 
 type Stats struct {
@@ -48,9 +46,8 @@ func GenState() State {
 		data:  make([]uint8, BUFSIZE),
 		index: 0,
 		// Stack to correctly implement loops
-		stack:   make(Stack, 0),
-		jumpFwd: make(map[uint]uint, 0),
-		instr:   0,
+		stack: make(Stack, 0),
+		instr: 0,
 	}
 }
 
@@ -81,84 +78,89 @@ func (s *State) PrintState() {
 
 // Normal BF instructions
 
-func (s *State) IndexInc(n uint) { // >
-	if s.index < BUFSIZE-n {
-		s.index += n
-	} else {
-		s.index = BUFSIZE - 1
-	}
+func (s *State) IndexInc(n int) { // >
+	s.index = uint(int(s.index) + n)
+
+	//if n > 0 {
+	//	if s.index < BUFSIZE-uint(n) {
+	//		s.index += uint(n)
+	//	} else {
+	//		s.index = BUFSIZE - 1
+	//	}
+	//} else {
+	//	//n = -n
+	//	if s.index >= uint(n) {
+	//		s.index += uint(n)
+	//	} else { // We need to reduce the index by the maximum amount.
+	//		s.index = 0
+	//	}
+	//}
 	if statistics {
 		s.stats.gt++
 	}
 }
 
-func (s *State) IndexDec(n uint) { // <
-	if s.index >= n {
-		s.index -= n
-	} else { // We need to reduce the index by the maximum amount.
-		s.index = 0
-	}
-
-	if statistics {
-		s.stats.lt++
-	}
-}
-
-func (s *State) DataInc(N uint, offset int8) {
-	n := uint8(N)
-	offsetIndex := int(s.index) + int(offset)
+func (s *State) DataInc(N int, offset int) {
+	n := uint8(N % 128)
+	//offsetIndex := int(s.index) + offset
 	//s.data[s.index] += n
-	if s.data[offsetIndex] < math.MaxUint8-n-1 {
-		s.data[offsetIndex] += n
-	} else {
-		s.data[offsetIndex] = math.MaxUint8 - 1
+	offset = int(s.index) + offset
+	if offset < 0 || offset >= BUFSIZE {
+		logE.Println("That's not a valid data cell: %d", offset)
 	}
+	s.data[offset] += n
+	//if s.data[offsetIndex] < math.MaxUint8-n-1 {
+	//	s.data[offsetIndex] += n
+	//} else {
+	//	s.data[offsetIndex] = math.MaxUint8 - 1
+	//}
 	if statistics {
 		s.stats.plus++
 	}
 }
 
-func (s *State) DataDec(N uint, offset int8) {
-	n := uint8(N)
-	offsetIndex := int(s.index) + int(offset)
-	//s.data[s.index] -= n
-	if s.data[offsetIndex] >= n {
-		s.data[offsetIndex] -= n
-	} else {
-		s.data[offsetIndex] = 0
-	}
-	if statistics {
-		s.stats.minus++
-	}
-}
+//func (s *State) DataDec(N uint, offset int8) {
+//	n := uint8(N)
+//	offsetIndex := int(s.index) + int(offset)
+//	//s.data[s.index] -= n
+//	if s.data[offsetIndex] >= n {
+//		s.data[offsetIndex] -= n
+//	} else {
+//		s.data[offsetIndex] = 0
+//	}
+//	if statistics {
+//		s.stats.minus++
+//	}
+//}
 
-func (s *State) StartLoop() {
-	if s.data[s.index] != 0 { // Enter loop; save return address on stack
-		// Explicitly create copy of instruction counter
-		i := s.instr
-		s.stack.Push(i) // Push the (pass-by-value) copy.
-	} else { // Skip the loop
-		s.instr = s.jumpFwd[s.instr]
-	}
-	if statistics {
-		s.stats.startL++
-	}
-}
+//func (s *State) StartLoop() {
+//	if s.data[s.index] != 0 { // Enter loop; save return address on stack
+//		// Explicitly create copy of instruction counter
+//		i := s.instr
+//		s.stack.Push(i) // Push the (pass-by-value) copy.
+//	} else { // Skip the loop
+//		s.instr = s.jumpFwd[s.instr]
+//	}
+//	if statistics {
+//		s.stats.startL++
+//	}
+//}
+//
+//func (s *State) EndLoop() {
+//	//if s.stack.Len() == 0 {
+//	//	logE.Println("Cannot resolve corresponding bracket, stack is empty")
+//	//	os.Exit(1)
+//	//}
+//	if s.data[s.index] != 0 { // Jump back
+//		s.instr = s.stack.Get() // Because we add one later
+//	} else { // End the loop
+//		s.stack.Pop() // Pop value from stack.
+//	}
+//	if statistics {
+//		s.stats.endL++
+//	}
+//}
 
-func (s *State) EndLoop() {
-	//if s.stack.Len() == 0 {
-	//	logE.Println("Cannot resolve corresponding bracket, stack is empty")
-	//	os.Exit(1)
-	//}
-	if s.data[s.index] != 0 { // Jump back
-		s.instr = s.stack.Get() // Because we add one later
-	} else { // End the loop
-		s.stack.Pop() // Pop value from stack.
-	}
-	if statistics {
-		s.stats.endL++
-	}
-}
 func (s *State) Print() {
 	s.output += string(s.data[s.index])
 	fmt.Printf("%c", s.data[s.index])
@@ -180,27 +182,23 @@ func (s *State) Zero() {
 	s.data[s.index] = 0
 }
 
-func (s *State) Offset(offset int8) {
-	s.offset = offset
-}
-
 func (s *State) Plus() {
-	s.DataInc(uint(s.data[s.index]), 1)
+	s.DataInc(int(s.data[s.index]), 1)
 	s.Zero()
 }
 
 func (s *State) Minus() {
-	s.DataDec(uint(s.data[s.index]+1), 0)
+	s.DataInc(-int(s.data[s.index+1]), 0)
 	s.data[s.index+1] = 0
 }
 
 func (s *State) Mult() {
-	s.DataInc(uint(s.data[s.index]*s.data[s.index+1]), 2)
+	s.DataInc(int(s.data[s.index]*s.data[s.index+1]), 2)
 	s.Zero()
 }
 
 func (s *State) Copy() {
-	s.DataInc(uint(s.data[s.index]), 1)
+	s.DataInc(int(s.data[s.index]), 1)
 }
 
 func (s *State) Exp() {

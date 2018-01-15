@@ -30,7 +30,7 @@ func BenchmarkCompleteProgram(b *testing.B) {
 func runHelper(s string) State {
 	var state = GenState()
 	b := []byte(s)
-	bfCode, jumpfwd := optimize(&b)
+	bfCode, jumpfwd := translate(&b)
 	state.jumpFwd = jumpfwd
 
 	for state.instr < uint(len(bfCode)) {
