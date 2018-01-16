@@ -81,20 +81,12 @@ func (s *State) PrintState() {
 func (s *State) IndexInc(n int) { // >
 	s.index = uint(int(s.index) + n)
 
-	//if n > 0 {
-	//	if s.index < BUFSIZE-uint(n) {
-	//		s.index += uint(n)
-	//	} else {
-	//		s.index = BUFSIZE - 1
-	//	}
-	//} else {
-	//	//n = -n
-	//	if s.index >= uint(n) {
-	//		s.index += uint(n)
-	//	} else { // We need to reduce the index by the maximum amount.
-	//		s.index = 0
-	//	}
+	//if n < 0 {
+	//	n = 0
+	//} else if n >= BUFSIZE {
+	//	n = BUFSIZE - 1
 	//}
+
 	if statistics {
 		s.stats.gt++
 	}
@@ -105,9 +97,6 @@ func (s *State) DataInc(N int, offset int) {
 	//offsetIndex := int(s.index) + offset
 	//s.data[s.index] += n
 	offset = int(s.index) + offset
-	if offset < 0 || offset >= BUFSIZE {
-		logE.Println("That's not a valid data cell: %d", offset)
-	}
 	s.data[offset] += n
 	//if s.data[offsetIndex] < math.MaxUint8-n-1 {
 	//	s.data[offsetIndex] += n

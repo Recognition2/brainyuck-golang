@@ -47,7 +47,7 @@ func main() {
 	}
 
 	// Print output
-	fmt.Printf("\n%s\n", state.output)
+	//fmt.Printf("\n%s\n", state.output)
 
 	// Timing stuffs
 	runTime := time.Since(startTime)
@@ -87,7 +87,7 @@ func main() {
 //	return ops
 //}
 
-//func analyseLoop(ops []Op) (loop, map[int]int) {
+//func analyseLoop(ops []Op) (Loop, map[int]int) {
 //	index := 0
 //	change := make(map[int]int, BUFSIZE)
 //
@@ -146,6 +146,14 @@ func beunSearch(s []byte, i int) int {
 func translate(s []byte) []Routine {
 	const valid = "><+-[].,"
 	optimized := make([]Routine, 0)
+	switch string(s) {
+	// Try to optimize [-] or [+] away
+	case "-", "+":
+		return append(optimized, Zero)
+		// Addition, evaluate [a b] to [0 a+b]
+	case "->+<":
+		return append(optimized, Plus)
+	}
 
 	for i := 0; i < len(s); i++ {
 		c := s[i]
@@ -156,32 +164,22 @@ func translate(s []byte) []Routine {
 		}
 
 		switch {
-		// Try to translate `[-]` and `[+]` away
-		//case strings.HasPrefix(string(s[i:]), "[-]"), strings.HasPrefix(string(s[i:]), "[+]"):
-		//	optimized = append(optimized, Zero)
-		//	i += 2
-		//
-		//// Try to translate `[->+<]` away, which evaluates [a b] to [0 a+b]
-		//case strings.HasPrefix(string(s[i:]), "[->+<]"):
-		//	optimized = append(optimized, Plus)
-		//	i += 5
-		//
 		//// Subtraction, evaluates [x, y] to [x-y, 0]
-		//case strings.HasPrefix(string(s[i:]), ">[-<->]<"):
+		//case ss == ">[-<->]<":
 		//	optimized = append(optimized, Minus)
 		//	i += 7
-		//
-		//// Copy a value
+
+		// Copy a value
 		//case strings.HasPrefix(string(s[i:]), "[->+>+<<]>>[-<<+>>]<<"):
 		//	optimized = append(optimized, Copy)
 		//	i += 20
-		//
-		//// Exponentiation
+
+		// Exponentiation
 		//case strings.HasPrefix(string(s[i:]), ">>+<[->[-<<[->>>+>+<<<<]>>>>[-<<<<+>>>>]<<]>[-<+>]<<]<"):
 		//	optimized = append(optimized, Exp)
 		//	i += 53
-		//
-		//// Division
+
+		// Division
 		//case strings.HasPrefix(string(s[i:]), "[>[->+>+<<]>[-<<-[>]>>>[<[-<->]<[>]>>[[-]>>+<]>-<]<<]>>>+<<[-<<+>>]<<<]>>>>>[-<<<<<+>>>>>]<<<<<"):
 		//	optimized = append(optimized, Divide)
 		//	i += 94
@@ -216,5 +214,8 @@ func translate(s []byte) []Routine {
 			optimized = append(optimized, Input)
 		}
 	}
+
+	// Try to optimize loop
+
 	return optimized
 }
