@@ -220,12 +220,11 @@ func (s *State) Seek(n int) {
 }
 
 func (s *State) ZeroIndexLoop(r []Routine) {
-	println("AAAA")
 	var i uint8
 	for i = 0; i < s.data[s.index]; i++ {
 		for _, o := range r {
 			o.execute(s)
 		}
 	}
-	s.data[s.index] = 0
+	s.Zero()
 }
