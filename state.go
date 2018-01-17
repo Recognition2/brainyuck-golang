@@ -7,10 +7,10 @@ import (
 const STACKSIZE = 500
 
 type State struct {
-	data   []uint8
-	index  uint
-	stack  Stack
-	instr  uint
+	data  []uint8
+	index int
+	stack Stack
+	//instr  uint
 	stats  Stats
 	output string
 	offset int
@@ -47,7 +47,7 @@ func GenState() State {
 		index: 0,
 		// Stack to correctly implement loops
 		stack: make(Stack, 0),
-		instr: 0,
+		//instr: 0,
 	}
 }
 
@@ -73,13 +73,13 @@ func (s *State) PrintState() {
 	}
 
 	fmt.Printf("\n Current index: %d\n", s.index)
-	fmt.Printf(" Current instr: %d\n", s.instr)
+	//fmt.Printf(" Current instr: %d\n", s.instr)
 }
 
 // Normal BF instructions
 
 func (s *State) IndexInc(n int) { // >
-	s.index = uint(int(s.index) + n)
+	s.index += n
 
 	//if n < 0 {
 	//	n = 0
@@ -208,4 +208,24 @@ func (s *State) Divide() {
 	x := s.data[s.index]
 	s.data[s.index] = x / s.data[s.index+1]
 	s.data[s.index+1] = x % s.data[s.index+1]
+}
+
+func (s *State) Seek(n int) {
+	for s.data[s.index] != 0 {
+		s.index += n
+		if s.index < 0 {
+			logE.Println("Cannot complete Seek operation")
+		}
+	}
+}
+
+func (s *State) ZeroIndexLoop(r []Routine) {
+	println("AAAA")
+	var i uint8
+	for i = 0; i < s.data[s.index]; i++ {
+		for _, o := range r {
+			o.execute(s)
+		}
+	}
+	s.data[s.index] = 0
 }

@@ -21,6 +21,7 @@ const (
 	Mult
 	Exp
 	Divide
+	Seek
 
 	// Ops with arguments
 	DataIncArg // ArgOp = iota
@@ -28,10 +29,16 @@ const (
 
 	// Ops with arguments and offsets
 	DataIncArgOffset // ArgOffsetOp = iota
+
+	// Loops
+	NoLoop
+	DefaultLoop
+	ZeroIndexLoop
 )
 
 type Routine interface {
 	execute(s *State)
+	getOp() Op
 }
 
 type OpWithArgOffset struct {
@@ -49,6 +56,10 @@ func (o OpWithArgOffset) execute(s *State) {
 	}
 }
 
+func (o OpWithArgOffset) getOp() Op {
+	return o.op
+}
+
 type OpWithArg struct {
 	op  Op
 	arg int
@@ -56,6 +67,8 @@ type OpWithArg struct {
 
 func (o OpWithArg) execute(s *State) {
 	switch o.op {
+	case Seek:
+		s.Seek(o.arg)
 	case IndexIncArg:
 		s.IndexInc(o.arg)
 	case DataIncArg:
@@ -65,19 +78,37 @@ func (o OpWithArg) execute(s *State) {
 	}
 }
 
+func (o OpWithArg) getOp() Op {
+	return o.op
+}
+
 type Loop struct {
-	ops []Routine
+	op   Op
+	loop []Routine
 }
 
 func (l Loop) execute(s *State) {
-	for s.data[s.index] != 0 {
-		for _, o := range l.ops {
+	switch l.op {
+	case DefaultLoop:
+		for s.data[s.index] != 0 {
+			for _, o := range l.loop {
+				o.execute(s)
+			}
+		}
+	case NoLoop:
+		for _, o := range l.loop {
 			o.execute(s)
 		}
+	case ZeroIndexLoop:
+		s.ZeroIndexLoop(l.loop)
 	}
 }
 
-type Op int
+func (l Loop) getOp() Op {
+	return l.op
+}
+
+type Op uint
 
 func (op Op) execute(s *State) {
 	switch op {
@@ -85,10 +116,10 @@ func (op Op) execute(s *State) {
 		s.IndexInc(-1)
 	case IndexInc:
 		s.IndexInc(1)
-	case DataDec:
-		s.DataInc(-1, 0)
-	case DataInc:
-		s.DataInc(1, 0)
+	//case DataDec:
+	//	s.DataInc(-1, 0)
+	//case DataInc:
+	//	s.DataInc(1, 0)
 	case Print:
 		s.Print()
 	case Input:
@@ -115,16 +146,18 @@ func (op Op) execute(s *State) {
 	}
 }
 
-func toOp(c uint8) Op {
+func (op Op) getOp() Op { return op }
+
+func toOp(c uint8) Routine {
 	switch c {
 	case '<':
 		return IndexDec
 	case '>':
 		return IndexInc
 	case '+':
-		return DataInc
-	case '-':
 		return DataDec
+	case '-':
+		return DataInc
 	case '.':
 		return Print
 	case ',':

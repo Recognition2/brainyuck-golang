@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -34,17 +35,17 @@ func main() {
 
 	var state = GenState()
 
-	// Build map with forward jump addresses
-	ops := translate(rawBF)
+	// Optimize BF to intermediate representation
+	_, ops := translate(rawBF)
+	program := Loop{NoLoop, ops}
 
-	//ops = optimizeLoops(bfCode, jumpfwd)
+	// Optimize loops even harder
+	//loop = optimizeLoops(bfCode, jumpfwd)
 	fmt.Println("Done optimizing, running...")
 	initTime := time.Since(startTime)
 
 	// Run all instructions
-	for _, op := range ops {
-		op.execute(&state)
-	}
+	program.execute(&state)
 
 	// Print output
 	//fmt.Printf("\n%s\n", state.output)
@@ -60,13 +61,13 @@ func main() {
 	return
 }
 
-//func optimizeLoops(ops []Op, skipLoopMap map[uint]uint) []Op {
+//func optimizeLoops(loop []Op) []Op {
 //	var i uint
-//	for i = 0; i < uint(len(ops)); i++ {
-//		op := ops[i]
+//	for i = 0; i < uint(len(loop)); i++ {
+//		op := loop[i]
 //		if op == StartLoop {
 //			end := skipLoopMap[i]
-//			content := ops[i:end]
+//			content := loop[i:end]
 //			whatLoop, whatHappensMap := analyseLoop(content)
 //			var newOps = make([]Op, 0)
 //			switch whatLoop {
@@ -76,23 +77,21 @@ func main() {
 //				newOps = optimizeZeroIndex(whatHappensMap)
 //			default:
 //			}
-//			//logE.Printf("Current operation is GOOD: %v\n", ops[end] == EndLoop)
-//			//logE.Printf("Correct one is -1: %v, +1: %v", ops[end-1] == EndLoop, ops[end+1] == EndLoop)
+//			//logE.Printf("Current operation is GOOD: %v\n", loop[end] == EndLoop)
+//			//logE.Printf("Correct one is -1: %v, +1: %v", loop[end-1] == EndLoop, loop[end+1] == EndLoop)
 //			//panic("aaaaa")
 //
 //			// If the loop was optimized, replace the old code with the new code.
-//			ops = append(append(ops[:i], newOps...), ops[end+1:]...)
+//			loop = append(append(loop[:i], newOps...), loop[end+1:]...)
 //		}
 //	}
-//	return ops
+//	return loop
 //}
-
-//func analyseLoop(ops []Op) (Loop, map[int]int) {
-//	index := 0
-//	change := make(map[int]int, BUFSIZE)
 //
-//	for i := 0; i < len(ops); i++ {
-//		op := ops[i]
+//func analyseLoop(loop []Op) (Op, map[int]int) {
+//
+//	for i := 0; i < len(loop); i++ {
+//		op := loop[i]
 //		switch op {
 //		case Print, Input:
 //			return NoLoop, nil
@@ -101,21 +100,21 @@ func main() {
 //		case IndexDec:
 //			index--
 //		case IndexDecArg:
-//			index -= int(ops[i+1])
+//			index -= int(loop[i+1])
 //			i++
 //		case IndexInc:
 //			index++
 //		case IndexIncArg:
-//			index += int(ops[i+1])
+//			index += int(loop[i+1])
 //			i++
 //		case DataDec:
 //			change[index]--
 //		case DataDecArg:
-//			change[index] -= int(ops[i+1])
+//			change[index] -= int(loop[i+1])
 //		case DataInc:
 //			change[index]++
 //		case DataIncArg:
-//			change[index] += int(ops[i+1])
+//			change[index] += int(loop[i+1])
 //
 //		}
 //	}
@@ -143,18 +142,26 @@ func beunSearch(s []byte, i int) int {
 	return i - 1
 }
 
-func translate(s []byte) []Routine {
+func translate(s []byte) (Op, []Routine) {
 	const valid = "><+-[].,"
 	optimized := make([]Routine, 0)
 	switch string(s) {
 	// Try to optimize [-] or [+] away
 	case "-", "+":
-		return append(optimized, Zero)
-		// Addition, evaluate [a b] to [0 a+b]
+		return NoLoop, append(optimized, Zero)
+
+	// Addition, evaluate [a b] to [0 a+b]
 	case "->+<":
-		return append(optimized, Plus)
+		return NoLoop, append(optimized, Plus)
 	}
 
+	// Optimize ZeroIndexLoop
+	ops, err := tryOptimizeZeroIndexLoop(s)
+	if err == nil {
+		return ZeroIndexLoop, ops
+	}
+
+	// Default loop handling
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 
@@ -163,7 +170,7 @@ func translate(s []byte) []Routine {
 			// representation
 		}
 
-		switch {
+		switch c {
 		//// Subtraction, evaluates [x, y] to [x-y, 0]
 		//case ss == ">[-<->]<":
 		//	optimized = append(optimized, Minus)
@@ -184,38 +191,84 @@ func translate(s []byte) []Routine {
 		//	optimized = append(optimized, Divide)
 		//	i += 94
 
-		case c == '[':
+		case '[':
 			loc := beunSearch(s, i)
 			if loc >= len(s) {
 				logE.Println("FATAL ERROR Trying to optimize loop %s", s[i+1:])
 			}
 			loop := s[i+1 : loc]
-			optimized = append(optimized, Loop{ops: translate(loop)})
+			op, instr := translate(loop)
+			optimized = append(optimized, Loop{op: op, loop: instr})
 			i += len(loop) + 1
 
-		case c == '>', c == '<', c == '-', c == '+':
+		case '>', '<', '-', '+':
 			// Try to find matching ones afterwards and collapse that
 			var count = 1
 			for i+count < len(s) && s[i+count] == c {
 				count++
 			}
 			// Count now contains the amount of chars equal to current character
-			if count == 1 {
-				optimized = append(optimized, toOp(c))
-			} else {
-				optimized = append(optimized, toOpWithArg(c, count))
-				i += int(count) - 1 // Skip over all iterations
-				// -1 because the loop adds one
+			//if count == 1 {
+			//	optimized = append(optimized, toOp(c))
+			//} else {
+			//
+			if len(s) == count && (c == '>' || c == '<') { // Seek operation
+				if c == '<' {
+					count = -count
+				}
+				return NoLoop, append(make([]Routine, 0), OpWithArg{op: Seek, arg: count})
 			}
 
-		case c == '.':
+			optimized = append(optimized, toOpWithArg(c, count))
+			i += int(count) - 1 // Skip over all iterations
+			// -1 because the loop adds one
+			//}
+
+		case '.':
 			optimized = append(optimized, Print)
-		case c == ',':
+		case ',':
 			optimized = append(optimized, Input)
 		}
 	}
 
-	// Try to optimize loop
+	return DefaultLoop, optimized
+}
+func tryOptimizeZeroIndexLoop(s []byte) ([]Routine, error) {
+	index := 0
+	change := make(map[int]int)
 
-	return optimized
+	for _, c := range s {
+		switch c {
+		case '.', ',', '[', ']':
+			return nil, errors.New("This is not a zero index loop")
+		case '+':
+			change[index] += 1
+		case '-':
+			change[index] -= 1
+		case '>':
+			index++
+		case '<':
+			index--
+		default:
+			continue
+		}
+	}
+
+	if !(index == 0 && change[0] == -1) {
+		return nil, errors.New("Not zero index")
+	}
+
+	// It's an ACTUAL zero index loop!!
+	optimized := make([]Routine, 0)
+	for k, v := range change {
+		if k == 0 {
+			continue
+		}
+		optimized = append(optimized, OpWithArgOffset{
+			op:     DataIncArgOffset,
+			arg:    v,
+			offset: k,
+		})
+	}
+	return optimized, nil
 }
