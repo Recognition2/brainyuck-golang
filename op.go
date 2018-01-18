@@ -97,8 +97,8 @@ func (l Loop) execute(s *State) {
 		}
 	case AddAndZero:
 		s.AddAndZero(l.loop)
-	case AddLoop:
-		s.GenericAdd(l.loop)
+	default:
+		logE.Printf("Is not a valid Loop: op = %d", l.op)
 	}
 }
 
