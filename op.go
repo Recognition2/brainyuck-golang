@@ -15,7 +15,6 @@ const (
 
 	// Advanced ops
 	Zero
-	Copy
 	Plus
 	Minus
 	Mult
@@ -38,7 +37,6 @@ const (
 
 type Routine interface {
 	execute(s *State)
-	getOp() Op
 }
 
 type OpWithArgOffset struct {
@@ -54,10 +52,6 @@ func (o OpWithArgOffset) execute(s *State) {
 	default:
 		logE.Printf("This cannot happen: op = %d", o.op)
 	}
-}
-
-func (o OpWithArgOffset) getOp() Op {
-	return o.op
 }
 
 type OpWithArg struct {
@@ -78,13 +72,10 @@ func (o OpWithArg) execute(s *State) {
 	}
 }
 
-func (o OpWithArg) getOp() Op {
-	return o.op
-}
-
 type Loop struct {
 	op   Op
 	loop []Routine
+	//counter *int
 }
 
 func (l Loop) execute(s *State) {
@@ -94,6 +85,9 @@ func (l Loop) execute(s *State) {
 			for _, o := range l.loop {
 				o.execute(s)
 			}
+			//if statistics {
+			//	*l.counter++
+			//}
 		}
 	case NoLoop:
 		for _, o := range l.loop {
@@ -104,10 +98,6 @@ func (l Loop) execute(s *State) {
 	}
 }
 
-func (l Loop) getOp() Op {
-	return l.op
-}
-
 type Op uint
 
 func (op Op) execute(s *State) {
@@ -116,10 +106,10 @@ func (op Op) execute(s *State) {
 		s.IndexInc(-1)
 	case IndexInc:
 		s.IndexInc(1)
-	//case DataDec:
-	//	s.DataInc(-1, 0)
-	//case DataInc:
-	//	s.DataInc(1, 0)
+	case DataDec:
+		s.DataInc(-1, 0)
+	case DataInc:
+		s.DataInc(1, 0)
 	case Print:
 		s.Print()
 	case Input:
@@ -134,8 +124,6 @@ func (op Op) execute(s *State) {
 		s.Minus()
 	case Mult:
 		s.Mult()
-	case Copy:
-		s.Copy()
 	case Exp:
 		s.Exp()
 	case Divide:
@@ -146,9 +134,7 @@ func (op Op) execute(s *State) {
 	}
 }
 
-func (op Op) getOp() Op { return op }
-
-func toOp(c uint8) Routine {
+func toOp(c uint8) Op {
 	switch c {
 	case '<':
 		return IndexDec

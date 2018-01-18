@@ -27,6 +27,7 @@ type Stats struct {
 	mult   int
 	seek   int
 	indexL int
+	loop   map[string]int
 }
 
 func (s Stats) Total() int {
@@ -50,23 +51,24 @@ func GenState() State {
 		// Stack to correctly implement loops
 		stack: make(Stack, 0),
 		//instr: 0,
+		stats: Stats{loop: make(map[string]int)},
 	}
 }
 
 func (s *State) printStats() {
 	fmt.Println("Printing statistics")
-	fmt.Printf(" gt:     \t%s\n", NumFormat(s.stats.gt))
-	//fmt.Printf(" lt:     \t%s\n", NumFormat(s.stats.lt))
-	fmt.Printf(" simplePlus:\t%s\n", NumFormat(s.stats.plus))
-	fmt.Printf(" dot:    \t%s\n", NumFormat(s.stats.dot))
-	fmt.Printf(" comma:  \t%s\n", NumFormat(s.stats.comma))
-	fmt.Printf(" plusOps:\t%s\n", NumFormat(s.stats.plusOp))
-	fmt.Printf(" minOps: \t%s\n", NumFormat(s.stats.minOp))
-	fmt.Printf(" zero:   \t%s\n", NumFormat(s.stats.zero))
-	fmt.Printf(" mult:   \t%s\n", NumFormat(s.stats.mult))
-	fmt.Printf(" seek:   \t%s\n", NumFormat(s.stats.seek))
-	fmt.Printf(" index:  \t%s\n", NumFormat(s.stats.indexL))
-	fmt.Printf(" Total number of executions cycles: %s\n", NumFormat(s.stats.Total()))
+	fmt.Printf(" gt:     \t%s\n", numFormat(s.stats.gt))
+	//fmt.Printf(" lt:     \t%s\n", numFormat(s.stats.lt))
+	fmt.Printf(" simplePlus:\t%s\n", numFormat(s.stats.plus))
+	fmt.Printf(" dot:    \t%s\n", numFormat(s.stats.dot))
+	fmt.Printf(" comma:  \t%s\n", numFormat(s.stats.comma))
+	fmt.Printf(" plusOps:\t%s\n", numFormat(s.stats.plusOp))
+	fmt.Printf(" minOps: \t%s\n", numFormat(s.stats.minOp))
+	fmt.Printf(" zero:   \t%s\n", numFormat(s.stats.zero))
+	fmt.Printf(" mult:   \t%s\n", numFormat(s.stats.mult))
+	fmt.Printf(" seek:   \t%s\n", numFormat(s.stats.seek))
+	fmt.Printf(" index:  \t%s\n", numFormat(s.stats.indexL))
+	fmt.Printf(" Total number of executions cycles: %s\n", numFormat(s.stats.Total()))
 }
 
 func (s *State) PrintState() {
@@ -114,7 +116,7 @@ func (s *State) DataInc(N int, offset int) {
 
 func (s *State) Print() {
 	s.output += string(s.data[s.index])
-	fmt.Printf("%c", s.data[s.index])
+	//fmt.Printf("%c", s.data[s.index])
 	if statistics {
 		s.stats.dot++
 	}
@@ -160,10 +162,6 @@ func (s *State) Mult() {
 	}
 }
 
-func (s *State) Copy() {
-	s.DataInc(int(s.data[s.index]), 1)
-}
-
 func (s *State) Exp() {
 	s.data[s.index+1] = Pow(s.data[s.index], s.data[s.index+1])
 	s.data[s.index+1] = 0
@@ -187,9 +185,9 @@ func (s *State) Divide() {
 func (s *State) Seek(n int) {
 	for s.data[s.index] != 0 {
 		s.index += n
-		if s.index < 0 {
-			logE.Println("Cannot complete Seek operation")
-		}
+		//if s.index < 0 {
+		//	logE.Println("Cannot complete Seek operation")
+		//}
 	}
 	if statistics {
 		s.stats.seek++
@@ -197,23 +195,22 @@ func (s *State) Seek(n int) {
 }
 
 func (s *State) ZeroIndexLoop(r []Routine) {
-	var i uint8
-	//for i = 0; i < s.data[s.index]; i++ {
-	//	for _, o := range r {
-	//		o.execute(s)
-	//	}
-	//}
+	var i = s.data[s.index]
 
 	for _, o := range r {
-		op, ok := o.(OpWithArgOffset)
-		if !ok {
+		opao, ok := o.(OpWithArgOffset)
+		if !ok || opao.op != DataIncArgOffset {
 			panic("It's always an op with arg offset in this place.. should be?")
 		}
-		for i = 0; i < s.data[s.index]; i++ {
-			op.execute(s)
+		newIndex := s.index + opao.offset
+		if newIndex > BUFSIZE || newIndex < 0 {
+			continue
 		}
+		val := opao.arg * int(i) % 256
+
+		s.data[newIndex] += uint8(val)
 	}
-	s.Zero()
+	s.data[s.index] = 0
 	if statistics {
 		s.stats.indexL++
 	}
