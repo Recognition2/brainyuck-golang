@@ -4,18 +4,16 @@ import (
 	"fmt"
 )
 
-const STACKSIZE = 500
-
+// All state in the program. Executables operate on a state
+// This makes all operations unit-testable
 type State struct {
-	data  []uint8
-	index int
-	stack Stack
-	//instr  uint
-	stats  Stats
-	output string
-	offset int
+	mem    [BUFSIZE]uint8 // Data array used by BF
+	ptr    int            // index into the array
+	stats  *Stats         // Statistics collected by the operations
+	output string         // What all `.` chars produce
 }
 
+// Statistics
 type Stats struct {
 	gt     int
 	plus   int
@@ -30,7 +28,7 @@ type Stats struct {
 	loop   map[string]int
 }
 
-func (s Stats) Total() int {
+func (s *Stats) Sum() int {
 	return s.gt +
 		s.plus +
 		s.dot +
@@ -45,53 +43,39 @@ func (s Stats) Total() int {
 
 func GenState() State {
 	return State{
-		// Data buffer
-		data:  make([]uint8, BUFSIZE),
-		index: 0,
-		// Stack to correctly implement loops
-		stack: make(Stack, 0),
-		//instr: 0,
-		stats: Stats{loop: make(map[string]int)},
+		//mem: make([]uint8, BUFSIZE),
+		//ptr: 0,
+		stats: &Stats{
+			loop: make(map[string]int),
+		},
 	}
 }
 
 func (s *State) printStats() {
 	fmt.Println("Printing statistics")
-	fmt.Printf(" gt:     \t%s\n", numFormat(s.stats.gt))
-	//fmt.Printf(" lt:     \t%s\n", numFormat(s.stats.lt))
-	fmt.Printf(" simplePlus:\t%s\n", numFormat(s.stats.plus))
-	fmt.Printf(" dot:    \t%s\n", numFormat(s.stats.dot))
-	fmt.Printf(" comma:  \t%s\n", numFormat(s.stats.comma))
-	fmt.Printf(" plusOps:\t%s\n", numFormat(s.stats.plusOp))
-	fmt.Printf(" minOps: \t%s\n", numFormat(s.stats.minOp))
-	fmt.Printf(" zero:   \t%s\n", numFormat(s.stats.zero))
-	fmt.Printf(" mult:   \t%s\n", numFormat(s.stats.mult))
-	fmt.Printf(" seek:   \t%s\n", numFormat(s.stats.seek))
-	fmt.Printf(" index:  \t%s\n", numFormat(s.stats.indexL))
-	fmt.Printf(" Total number of executions cycles: %s\n", numFormat(s.stats.Total()))
-}
-
-func (s *State) PrintState() {
-	fmt.Print("Logging s: \n Data: ")
-
-	for i := 0; i < 10; i++ {
-		fmt.Printf("%d ", s.data[i])
-	}
-
-	fmt.Printf("\n Current index: %d\n", s.index)
-	//fmt.Printf(" Current instr: %d\n", s.instr)
+	fmt.Printf(" gt:     \t%s\n", numFmt(s.stats.gt))
+	fmt.Printf(" simplePlus:\t%s\n", numFmt(s.stats.plus))
+	fmt.Printf(" dot:    \t%s\n", numFmt(s.stats.dot))
+	fmt.Printf(" comma:  \t%s\n", numFmt(s.stats.comma))
+	fmt.Printf(" plusOps:\t%s\n", numFmt(s.stats.plusOp))
+	fmt.Printf(" minOps: \t%s\n", numFmt(s.stats.minOp))
+	fmt.Printf(" zero:   \t%s\n", numFmt(s.stats.zero))
+	fmt.Printf(" mult:   \t%s\n", numFmt(s.stats.mult))
+	fmt.Printf(" seek:   \t%s\n", numFmt(s.stats.seek))
+	fmt.Printf(" loop:  \t%s\n", numFmt(s.stats.indexL))
+	fmt.Printf(" Sum number of executions cycles: %s\n", numFmt(s.stats.Sum()))
 }
 
 // Normal BF instructions
 
 func (s *State) IndexInc(n int) { // >
-	s.index += n
+	s.ptr += n
 
-	//if n < 0 {
-	//	n = 0
-	//} else if n >= BUFSIZE {
-	//	n = BUFSIZE - 1
-	//}
+	if s.ptr < 0 {
+		s.ptr = 0
+	} else if s.ptr >= BUFSIZE {
+		s.ptr = BUFSIZE - 1
+	}
 
 	if statistics {
 		s.stats.gt++
@@ -100,23 +84,23 @@ func (s *State) IndexInc(n int) { // >
 
 func (s *State) DataInc(N int, offset int) {
 	n := uint8(N)
-	//offsetIndex := int(s.index) + offset
-	//s.data[s.index] += n
-	offset = int(s.index) + offset
-	s.data[offset] += n
-	//if s.data[offsetIndex] < math.MaxUint8-n-1 {
-	//	s.data[offsetIndex] += n
-	//} else {
-	//	s.data[offsetIndex] = math.MaxUint8 - 1
-	//}
+	index := int(s.ptr) + offset
+	if index > BUFSIZE || index < 0 {
+		logE.Printf("Cannot complete this operation, index out of range: index = %d", index)
+		return
+	}
+	s.mem[index] += n
+
 	if statistics {
 		s.stats.plus++
 	}
 }
 
 func (s *State) Print() {
-	s.output += string(s.data[s.index])
-	//fmt.Printf("%c", s.data[s.index])
+	s.output += string(s.mem[s.ptr])
+	if !buffer {
+		fmt.Printf("%c", s.mem[s.ptr])
+	}
 	if statistics {
 		s.stats.dot++
 	}
@@ -124,7 +108,7 @@ func (s *State) Print() {
 func (s *State) Input() {
 	var c string
 	fmt.Scanf("%c", &c)
-	s.data[s.index] = c[0]
+	s.mem[s.ptr] = c[0]
 	if statistics {
 		s.stats.comma++
 	}
@@ -132,30 +116,32 @@ func (s *State) Input() {
 
 // Advanced BF instructions
 func (s *State) Zero() {
-	s.data[s.index] = 0
+	s.mem[s.ptr] = 0
 	if statistics {
 		s.stats.zero++
 	}
 }
 
 func (s *State) Plus() {
-	s.DataInc(int(s.data[s.index]), 1)
+	s.DataInc(int(s.mem[s.ptr]), 1)
 	s.Zero()
 	if statistics {
 		s.stats.plusOp++
 	}
 }
 
+// Subtraction, evaluates [x, y] to [x-y, 0]
 func (s *State) Minus() {
-	s.DataInc(-int(s.data[s.index+1]), 0)
-	s.data[s.index+1] = 0
+	s.DataInc(-int(s.mem[s.ptr+1]), 0)
+	s.mem[s.ptr+1] = 0
+
 	if statistics {
 		s.stats.minOp++
 	}
 }
 
 func (s *State) Mult() {
-	s.DataInc(int(s.data[s.index]*s.data[s.index+1]), 2)
+	s.DataInc(int(s.mem[s.ptr]*s.mem[s.ptr+1]), 2)
 	s.Zero()
 	if statistics {
 		s.stats.mult++
@@ -163,8 +149,8 @@ func (s *State) Mult() {
 }
 
 func (s *State) Exp() {
-	s.data[s.index+1] = Pow(s.data[s.index], s.data[s.index+1])
-	s.data[s.index+1] = 0
+	s.mem[s.ptr+1] = Pow(s.mem[s.ptr], s.mem[s.ptr+1])
+	s.mem[s.ptr+1] = 0
 }
 
 func Pow(x uint8, y uint8) (result uint8) {
@@ -177,15 +163,15 @@ func Pow(x uint8, y uint8) (result uint8) {
 }
 
 func (s *State) Divide() {
-	x := s.data[s.index]
-	s.data[s.index] = x / s.data[s.index+1]
-	s.data[s.index+1] = x % s.data[s.index+1]
+	x := s.mem[s.ptr]
+	s.mem[s.ptr] = x / s.mem[s.ptr+1]
+	s.mem[s.ptr+1] = x % s.mem[s.ptr+1]
 }
 
 func (s *State) Seek(n int) {
-	for s.data[s.index] != 0 {
-		s.index += n
-		//if s.index < 0 {
+	for s.mem[s.ptr] != 0 {
+		s.ptr += n
+		//if s.ptr < 0 {
 		//	logE.Println("Cannot complete Seek operation")
 		//}
 	}
@@ -194,23 +180,23 @@ func (s *State) Seek(n int) {
 	}
 }
 
-func (s *State) ZeroIndexLoop(r []Routine) {
-	var i = s.data[s.index]
+func (s *State) AddAndZero(r []Executable) {
+	var i = s.mem[s.ptr]
 
 	for _, o := range r {
 		opao, ok := o.(OpWithArgOffset)
 		if !ok || opao.op != DataIncArgOffset {
 			panic("It's always an op with arg offset in this place.. should be?")
 		}
-		newIndex := s.index + opao.offset
+		newIndex := s.ptr + opao.offset
 		if newIndex > BUFSIZE || newIndex < 0 {
 			continue
 		}
 		val := opao.arg * int(i) % 256
 
-		s.data[newIndex] += uint8(val)
+		s.mem[newIndex] += uint8(val)
 	}
-	s.data[s.index] = 0
+	s.mem[s.ptr] = 0
 	if statistics {
 		s.stats.indexL++
 	}

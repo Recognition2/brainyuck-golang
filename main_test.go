@@ -7,21 +7,12 @@ import (
 func TestIncrementIndex(t *testing.T) {
 	s := GenState()
 	s.IndexInc(1200)
-	if s.index != 1200 {
-		t.Errorf("Incrementing index failed")
+	if s.ptr != 1200 {
+		t.Errorf("Incrementing ptr failed")
 	}
 }
 
 func BenchmarkCompleteProgram(b *testing.B) {
-	//filename := "test.bf"
-	//
-	//rawBF, err := ioutil.ReadFile(filename)
-	//if err != nil {
-	//	logE.Println(err)
-	//}
-	//
-	//bfCode := string(rawBF)
-
 	for n := 0; n < b.N; n++ {
 		main()
 	}
@@ -30,12 +21,9 @@ func BenchmarkCompleteProgram(b *testing.B) {
 func runHelper(s string) State {
 	var state = GenState()
 	b := []byte(s)
-	bfCode, jumpfwd := translate(&b)
-	state.jumpFwd = jumpfwd
-
-	for state.instr < uint(len(bfCode)) {
-		bfExecute(&bfCode, &state)
-	}
+	_, ops := translate(b)
+	program := Loop{NoLoop, ops}
+	program.execute(&state)
 	return state
 }
 

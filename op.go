@@ -1,44 +1,47 @@
 package main
 
-// Define all operations
+/// This file contains all Operation-related stuffs.
+
+// All BF IML operations.
 const (
-	// Traditional ops
-	DataDec  Op = iota // 0
-	DataInc            // 1
-	IndexDec           // 2
-	IndexInc           // 3
+	// Traditional ops, known in BF syntax
+	DataDec  Op = iota // 0 -
+	DataInc            // 1 +
+	IndexDec           // 2 <
+	IndexInc           // 3 >
+	Print              // 4 .
+	Input              // 5 ,
 
-	Print // 12
-	Input // 13
-	//StartLoop // 14 // Special
-	//EndLoop   // 15
-
-	// Advanced ops
-	Zero
-	Plus
-	Minus
-	Mult
-	Exp
-	Divide
-	Seek
+	// Advanced ops, recognized from traditional BF operations
+	Zero   // 6 [-], [+]
+	Plus   // 7 [->+<]
+	Minus  // 8
+	Mult   // 9
+	Exp    // 10
+	Divide // 11
+	Seek   // 12
 
 	// Ops with arguments
-	DataIncArg // ArgOp = iota
+	DataIncArg
 	IndexIncArg
 
 	// Ops with arguments and offsets
-	DataIncArgOffset // ArgOffsetOp = iota
+	DataIncArgOffset // Used only for AddAndZero
 
-	// Loops
-	NoLoop
-	DefaultLoop
-	ZeroIndexLoop
+	// Loopable operations
+	NoLoop      // Just a sequence of operations
+	DefaultLoop // Any loop
+	AddAndZero  // Not actually a loop, but does carry an array of operations with him.
+	AddLoop
 )
 
-type Routine interface {
+// Define interface implemented by all operations.
+// An executable operates on a State.
+type Executable interface {
 	execute(s *State)
 }
 
+// Operations that take both an argument and an offset, implements Executable
 type OpWithArgOffset struct {
 	op     Op
 	arg    int
@@ -50,10 +53,11 @@ func (o OpWithArgOffset) execute(s *State) {
 	case DataIncArgOffset:
 		s.DataInc(o.arg, o.offset)
 	default:
-		logE.Printf("This cannot happen: op = %d", o.op)
+		logE.Printf("Is not a valid Op With Arg And Offset: op = %d", o.op)
 	}
 }
 
+// Operations that take an argument. Implements Executable
 type OpWithArg struct {
 	op  Op
 	arg int
@@ -68,36 +72,37 @@ func (o OpWithArg) execute(s *State) {
 	case DataIncArg:
 		s.DataInc(o.arg, 0)
 	default:
-		logE.Printf("This cannot happen: op = %d", o.op)
+		logE.Printf("Is not a valid Op With Arg: op = %d", o.op)
 	}
 }
 
+// Sequence of operations that, in general, executes until mem[ptr] reaches zero. Implements Executable
+// Does not need to be loopable.
 type Loop struct {
 	op   Op
-	loop []Routine
-	//counter *int
+	loop []Executable
 }
 
 func (l Loop) execute(s *State) {
 	switch l.op {
 	case DefaultLoop:
-		for s.data[s.index] != 0 {
+		for s.mem[s.ptr] != 0 {
 			for _, o := range l.loop {
 				o.execute(s)
 			}
-			//if statistics {
-			//	*l.counter++
-			//}
 		}
 	case NoLoop:
 		for _, o := range l.loop {
 			o.execute(s)
 		}
-	case ZeroIndexLoop:
-		s.ZeroIndexLoop(l.loop)
+	case AddAndZero:
+		s.AddAndZero(l.loop)
+	case AddLoop:
+		s.GenericAdd(l.loop)
 	}
 }
 
+// Standard Op type, does not take an argument.
 type Op uint
 
 func (op Op) execute(s *State) {
@@ -130,7 +135,7 @@ func (op Op) execute(s *State) {
 		s.Divide()
 
 	default:
-		logE.Printf("This cannot happen: op = %d", op)
+		logE.Printf("Op is not an op: %d", op)
 	}
 }
 
@@ -154,19 +159,19 @@ func toOp(c uint8) Op {
 	}
 }
 
-func toOpWithArg(c uint8, count int) Routine {
+// toOpWithArg transforms a BF instruction that happens `count` times into an appropriate IML operation
+func toOpWithArg(c uint8, count int) Executable {
 	switch c {
 	case '>':
 		return OpWithArg{op: IndexIncArg, arg: count}
 	case '<':
-		a := OpWithArg{op: IndexIncArg, arg: -count}
-		return a
+		return OpWithArg{op: IndexIncArg, arg: -count}
 	case '+':
 		return OpWithArg{op: DataIncArg, arg: count}
 	case '-':
 		return OpWithArg{op: DataIncArg, arg: -count}
 	default:
-		logE.Printf("This is not a valid Routine: %d!", c)
+		logE.Printf("This is not a valid Executable: %d!", c)
 		return IndexInc
 	}
 }
