@@ -17,27 +17,29 @@ type State struct {
 }
 
 type Stats struct {
-	lt      int
-	gt      int
-	plus    int
-	minus   int
-	dot     int
-	comma   int
-	startL  int
-	endL    int
-	skipped int
+	gt     int
+	plus   int
+	dot    int
+	comma  int
+	plusOp int
+	minOp  int
+	zero   int
+	mult   int
+	seek   int
+	indexL int
 }
 
 func (s Stats) Total() int {
-	return s.lt +
-		s.gt +
+	return s.gt +
 		s.plus +
-		s.minus +
 		s.dot +
 		s.comma +
-		s.startL +
-		s.endL +
-		s.skipped
+		s.plusOp +
+		s.minOp +
+		s.zero +
+		s.mult +
+		s.seek +
+		s.indexL
 }
 
 func GenState() State {
@@ -53,16 +55,18 @@ func GenState() State {
 
 func (s *State) printStats() {
 	fmt.Println("Printing statistics")
-	fmt.Printf(" gt:     \t%d\n", s.stats.gt)
-	fmt.Printf(" lt:     \t%d\n", s.stats.lt)
-	fmt.Printf(" plus:   \t%d\n", s.stats.plus)
-	fmt.Printf(" minus:  \t%d\n", s.stats.minus)
-	fmt.Printf(" dot:    \t%d\n", s.stats.dot)
-	fmt.Printf(" comma:  \t%d\n", s.stats.comma)
-	fmt.Printf(" start L:\t%d\n", s.stats.startL)
-	fmt.Printf(" End L:  \t%d\n", s.stats.endL)
-	fmt.Printf(" Skipped:\t%d\n", s.stats.skipped)
-	fmt.Printf(" Total number of executions cycles: %d\n", s.stats.Total())
+	fmt.Printf(" gt:     \t%s\n", NumFormat(s.stats.gt))
+	//fmt.Printf(" lt:     \t%s\n", NumFormat(s.stats.lt))
+	fmt.Printf(" simplePlus:\t%s\n", NumFormat(s.stats.plus))
+	fmt.Printf(" dot:    \t%s\n", NumFormat(s.stats.dot))
+	fmt.Printf(" comma:  \t%s\n", NumFormat(s.stats.comma))
+	fmt.Printf(" plusOps:\t%s\n", NumFormat(s.stats.plusOp))
+	fmt.Printf(" minOps: \t%s\n", NumFormat(s.stats.minOp))
+	fmt.Printf(" zero:   \t%s\n", NumFormat(s.stats.zero))
+	fmt.Printf(" mult:   \t%s\n", NumFormat(s.stats.mult))
+	fmt.Printf(" seek:   \t%s\n", NumFormat(s.stats.seek))
+	fmt.Printf(" index:  \t%s\n", NumFormat(s.stats.indexL))
+	fmt.Printf(" Total number of executions cycles: %s\n", NumFormat(s.stats.Total()))
 }
 
 func (s *State) PrintState() {
@@ -93,7 +97,7 @@ func (s *State) IndexInc(n int) { // >
 }
 
 func (s *State) DataInc(N int, offset int) {
-	n := uint8(N % 128)
+	n := uint8(N)
 	//offsetIndex := int(s.index) + offset
 	//s.data[s.index] += n
 	offset = int(s.index) + offset
@@ -107,48 +111,6 @@ func (s *State) DataInc(N int, offset int) {
 		s.stats.plus++
 	}
 }
-
-//func (s *State) DataDec(N uint, offset int8) {
-//	n := uint8(N)
-//	offsetIndex := int(s.index) + int(offset)
-//	//s.data[s.index] -= n
-//	if s.data[offsetIndex] >= n {
-//		s.data[offsetIndex] -= n
-//	} else {
-//		s.data[offsetIndex] = 0
-//	}
-//	if statistics {
-//		s.stats.minus++
-//	}
-//}
-
-//func (s *State) StartLoop() {
-//	if s.data[s.index] != 0 { // Enter loop; save return address on stack
-//		// Explicitly create copy of instruction counter
-//		i := s.instr
-//		s.stack.Push(i) // Push the (pass-by-value) copy.
-//	} else { // Skip the loop
-//		s.instr = s.jumpFwd[s.instr]
-//	}
-//	if statistics {
-//		s.stats.startL++
-//	}
-//}
-//
-//func (s *State) EndLoop() {
-//	//if s.stack.Len() == 0 {
-//	//	logE.Println("Cannot resolve corresponding bracket, stack is empty")
-//	//	os.Exit(1)
-//	//}
-//	if s.data[s.index] != 0 { // Jump back
-//		s.instr = s.stack.Get() // Because we add one later
-//	} else { // End the loop
-//		s.stack.Pop() // Pop value from stack.
-//	}
-//	if statistics {
-//		s.stats.endL++
-//	}
-//}
 
 func (s *State) Print() {
 	s.output += string(s.data[s.index])
@@ -169,21 +131,33 @@ func (s *State) Input() {
 // Advanced BF instructions
 func (s *State) Zero() {
 	s.data[s.index] = 0
+	if statistics {
+		s.stats.zero++
+	}
 }
 
 func (s *State) Plus() {
 	s.DataInc(int(s.data[s.index]), 1)
 	s.Zero()
+	if statistics {
+		s.stats.plusOp++
+	}
 }
 
 func (s *State) Minus() {
 	s.DataInc(-int(s.data[s.index+1]), 0)
 	s.data[s.index+1] = 0
+	if statistics {
+		s.stats.minOp++
+	}
 }
 
 func (s *State) Mult() {
 	s.DataInc(int(s.data[s.index]*s.data[s.index+1]), 2)
 	s.Zero()
+	if statistics {
+		s.stats.mult++
+	}
 }
 
 func (s *State) Copy() {
@@ -217,14 +191,30 @@ func (s *State) Seek(n int) {
 			logE.Println("Cannot complete Seek operation")
 		}
 	}
+	if statistics {
+		s.stats.seek++
+	}
 }
 
 func (s *State) ZeroIndexLoop(r []Routine) {
 	var i uint8
-	for i = 0; i < s.data[s.index]; i++ {
-		for _, o := range r {
-			o.execute(s)
+	//for i = 0; i < s.data[s.index]; i++ {
+	//	for _, o := range r {
+	//		o.execute(s)
+	//	}
+	//}
+
+	for _, o := range r {
+		op, ok := o.(OpWithArgOffset)
+		if !ok {
+			panic("It's always an op with arg offset in this place.. should be?")
+		}
+		for i = 0; i < s.data[s.index]; i++ {
+			op.execute(s)
 		}
 	}
 	s.Zero()
+	if statistics {
+		s.stats.indexL++
+	}
 }
