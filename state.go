@@ -70,12 +70,12 @@ func (s *State) printStats() {
 
 func (s *State) IndexInc(n int) { // >
 	s.ptr += n
-
-	if s.ptr < 0 {
-		s.ptr = 0
-	} else if s.ptr >= BUFSIZE {
-		s.ptr = BUFSIZE - 1
-	}
+	//
+	//if s.ptr < 0 {
+	//	s.ptr = 0
+	//} else if s.ptr >= BUFSIZE {
+	//	s.ptr = BUFSIZE - 1
+	//}
 
 	if statistics {
 		s.stats.gt++
@@ -85,10 +85,10 @@ func (s *State) IndexInc(n int) { // >
 func (s *State) DataInc(N int, offset int) {
 	n := uint8(N)
 	index := int(s.ptr) + offset
-	if index > BUFSIZE || index < 0 {
-		logE.Printf("Cannot complete this operation, index out of range: index = %d", index)
-		return
-	}
+	//if index > BUFSIZE || index < 0 {
+	//	logE.Printf("Cannot complete this operation, index out of range: index = %d", index)
+	//	return
+	//}
 	s.mem[index] += n
 
 	if statistics {
@@ -107,8 +107,9 @@ func (s *State) Print() {
 }
 func (s *State) Input() {
 	var c string
+	panic("Not yet implemented")
 	fmt.Scanf("%c", &c)
-	s.mem[s.ptr] = c[0]
+	s.mem[s.ptr] = byte(c[0])
 	if statistics {
 		s.stats.comma++
 	}

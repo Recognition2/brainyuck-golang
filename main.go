@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -45,9 +44,6 @@ func main() {
 	_, ops := translate(rawBF)
 	program := Loop{NoLoop, ops}
 
-	runtime.GC()
-
-	// Optimize loops even harder
 	fmt.Println("Done optimizing, running...")
 	initTime := time.Since(startTime)
 
@@ -61,7 +57,7 @@ func main() {
 
 	// Timing stuffs
 	runTime := time.Since(startTime)
-	fmt.Printf("Optimizing took %s.\nTotal took %s\n", initTime, runTime)
+	fmt.Printf("\nOptimizing took %s.\nTotal took %s\n", initTime, runTime)
 
 	// Function call statistics
 	if statistics {
