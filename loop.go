@@ -26,6 +26,10 @@ func (l Loop) execute(s *State) {
 		}
 	case AddAndZero:
 		s.AddAndZero(l.loop)
+	case AddLoop:
+		for s.mem[s.ptr] != 0 {
+			s.GenericAdd(l.loop)
+		}
 	default:
 		logE.Printf("Is not a valid Loop: op = %d", l.op)
 	}
@@ -49,6 +53,13 @@ func (l Loop) toC(b *bytes.Buffer) {
 		for _, o := range l.loop {
 			o.toC(b)
 		}
+	case AddLoop:
+		b.WriteString("while (*ptr) { \n" +
+			"counter = 1;\n")
+		for _, o := range l.loop {
+			o.toC(b)
+		}
+		b.WriteString("\n}\n")
 	default:
 		panic("Transformation to C code not yet implemented")
 	}

@@ -1,38 +1,42 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Length of the array containing
-const BUFSIZE = 30000
+const (
+	// Length of the array containing
+	BUFSIZE = 30000
+
+	// Whether we should print function call statistics and timing information
+	statistics = false
+
+	// Whether output should be printed immediately, or buffered
+	buffer = false
+)
 
 var (
 	logE = log.New(os.Stderr, "[ERRO] ", log.Ldate+log.Ltime+log.Ltime+log.Lshortfile)
-	//logW = log.New(os.Stdout, "[WARN] ", log.Ldate+log.Ltime)
-	//logI = log.New(os.Stdout, "[INFO] ", log.Ldate+log.Ltime)
-)
 
-// Print function call statistics and timing information
-const statistics = false
-const buffer = false
+	//Do we interpret code, or compile to some language?
+	interpret bool
+)
 
 func main() {
 	startTime := time.Now()
 	fmt.Println("Running")
 
-	var filename = flag.String("filename", "test.bf", "Path to file containing BrainYuck code")
-	//buffer = *flag.Bool("buffer", false, "Whether the output should be buffered until the end")
+	filename := flag.String("filename", "test.bf", "Path to file containing BrainYuck code")
+	compileTo := flag.String("compile", "no", "By default, we interpret the BF code instead of "+
+		"compiling to C code. This incurs a penalty hit, compiling is faster.")
 	flag.Parse()
 
 	rawBF, err := ioutil.ReadFile(*filename)
@@ -46,89 +50,41 @@ func main() {
 
 	// Optimize BF to intermediate representation
 	_, ops := translate(rawBF)
-	//program := Loop{NoLoop, ops}
+	program := Loop{NoLoop, ops}
+	initTime := time.Since(startTime) // Timing stuffs
 
-	// Run all instructions
-	//program.execute(&state)
+	var compileTime = time.Nanosecond
+	switch *compileTo {
+	case "c":
+		// Compile instructions to C code, execute this C code
+		compileTime = compileCAndExec(program, startTime)
+	default:
+		fmt.Println("This language is not supported at the moment, interpreting")
+		fallthrough
+	case "no":
+		interpret = true
+		// Running instructions
+		program.execute(&state)
 
-	//fmt.Println("Done optimizing, running...")
-	initTime := time.Since(startTime)
-
-	const bf = "brainfuck.c"
-
-	// Translate program to C code
-	c := programToC(ops)
-	ioutil.WriteFile(bf, c, 0733)
-
-	// Compile C code
-	gcc := exec.Command("gcc", bf, "-O1", "-o", "compiled")
-	gcc.Stdout = os.Stdout
-	gcc.Stderr = os.Stderr
-	err = gcc.Run()
-	if err != nil {
-		println(err.Error())
-	}
-
-	os.Rename(bf, bf+".txt")
-	compileTime := time.Since(startTime)
-
-	// Run compiled C code
-	program := exec.Command("./compiled")
-	program.Stdout = os.Stdout
-	program.Stderr = os.Stderr
-	program.Run()
-	if err != nil {
-		println(err.Error())
 	}
 
 	// Print output
-	if buffer {
+	if buffer && interpret {
 		fmt.Printf("\n%s\n", state.output)
 	}
 
 	// Timing stuffs
 	runTime := time.Since(startTime)
-	fmt.Printf("Loading BF code from file took  \t\t%s\n", loadTime)
-	fmt.Printf("Optimizing BF instructions took \t\t%s\n", initTime)
-	fmt.Printf("Writing to C file, and compiling took \t\t%s\n", compileTime)
-	fmt.Printf("Total took \t\t\t\t\t%s\n", runTime)
+	fmt.Printf("Loading BF code from file:  \t \t\t\t%s\n", loadTime)
+	fmt.Printf("Optimizing BF instructions:  \t\t\t\t%s\n", initTime)
+	fmt.Printf("Writing to C file, and compiling with %s: \t\t%s\n", optimization, compileTime)
+	fmt.Printf("Total duration: \t\t\t\t\t%s\n", runTime)
 
 	// Function call statistics
-	if statistics {
+	if statistics && interpret {
 		state.printStats()
 	}
 	return
-}
-
-const head = `
-#include <stdio.h>
-#include <stdint.h>
-#define BASESIZE 30000
-
-int main() {
-	//setbuf(stdout, NULL);
-
-	char mem[BASESIZE] = { 0 };
-
-	char *ptr = mem;
-	int counter = 0;
-`
-const foot = `
-}
-`
-
-func programToC(e []Executable) []byte {
-	var b bytes.Buffer
-
-	// Write head of the file
-	b.WriteString(head)
-
-	for _, o := range e {
-		o.toC(&b)
-	}
-	b.WriteString(foot)
-
-	return b.Bytes()
 }
 
 // numFmt formats very long integers as a string
@@ -285,14 +241,40 @@ func tryOptimizeAddLoop(s []byte) (Op, []Executable, error) {
 	if ptr == 0 && mem[0] == -1 {
 		return AddAndZero, optimizeAddAndZero(mem), nil
 	} else {
-		// We can, at the moment, not optimize this further.
-		return Input, nil, errors.New("cannot optimize generic loops yet.")
+		return AddLoop, optimizeGenericAdd(ptr, mem), nil
 	}
 }
 
-func optimizeAddAndZero(mem map[int]int) []Executable {
+func optimizeGenericAdd(index int, mem map[int]int) (optimized []Executable) {
+	// Generic version of AddAndZero loop
+	for k, v := range mem {
+		if k == 0 {
+			// Current cell has to be appended as the last instruction in the loop, otherwise the offsets of the others will be false
+			continue
+		}
+		optimized = append(optimized, OpWithArgOffset{
+			op:     DataIncArgOffset,
+			arg:    v,
+			offset: k,
+		})
+	}
+	optimized = append(optimized,
+		// Append zero as last DataInc instruction
+		OpWithArg{
+			op:  DataIncArg,
+			arg: mem[0],
+		},
+		// Move the pointer the specified amount
+		OpWithArg{
+			op:  IndexIncArg,
+			arg: index,
+		},
+	)
+	return
+}
+
+func optimizeAddAndZero(mem map[int]int) (optimized []Executable) {
 	// It's an ACTUAL zero ptr loop!!
-	optimized := make([]Executable, 0)
 	for k, v := range mem {
 		if k == 0 {
 			// The current cell is zeroed anyway, property of this type of loop

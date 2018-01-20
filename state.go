@@ -101,7 +101,7 @@ func (s *State) Print() {
 	if !buffer {
 		fmt.Printf("%c", s.mem[s.ptr])
 	}
-	if statistics {
+	if statistics && interpret {
 		s.stats.dot++
 	}
 }
@@ -200,5 +200,11 @@ func (s *State) AddAndZero(r []Executable) {
 	s.mem[s.ptr] = 0
 	if statistics {
 		s.stats.indexL++
+	}
+}
+
+func (s *State) GenericAdd(r []Executable) {
+	for _, o := range r {
+		o.execute(s)
 	}
 }
