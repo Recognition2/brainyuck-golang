@@ -1,4 +1,5 @@
 # Brainyuck parser, written in Go
+[![Build Status](https://travis-ci.org/Recognition2/brainyuck-golang.svg?branch=master)](https://travis-ci.org/Recognition2/brainyuck-golang)
 
 ### How to work with it
 The filename of the brainyuck code can be passed with the `-filename <file>` flag. Note the single dash (go default..)
