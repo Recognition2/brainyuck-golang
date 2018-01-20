@@ -1,5 +1,9 @@
 package main
 
+import (
+	"bytes"
+)
+
 // Sequence of operations that, in general, executes until mem[ptr] reaches zero.
 // Implements Executable
 // Does not need to be loopable.
@@ -24,5 +28,28 @@ func (l Loop) execute(s *State) {
 		s.AddAndZero(l.loop)
 	default:
 		logE.Printf("Is not a valid Loop: op = %d", l.op)
+	}
+}
+
+func (l Loop) toC(b *bytes.Buffer) {
+	switch l.op {
+	case DefaultLoop:
+		b.WriteString("while (*ptr) { \n")
+		for _, o := range l.loop {
+			o.toC(b)
+		}
+		b.WriteString("\n}\n")
+	case NoLoop:
+		for _, o := range l.loop {
+			o.toC(b)
+		}
+	case AddAndZero:
+		b.WriteString("counter = (int) *ptr;\n" +
+			"*ptr = 0;\n")
+		for _, o := range l.loop {
+			o.toC(b)
+		}
+	default:
+		panic("Transformation to C code not yet implemented")
 	}
 }

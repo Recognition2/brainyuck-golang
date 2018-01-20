@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -36,19 +38,48 @@ func main() {
 	rawBF, err := ioutil.ReadFile(*filename)
 	if err != nil {
 		logE.Println(err)
+		os.Exit(1)
 	}
+	loadTime := time.Since(startTime)
 
 	var state = GenState()
 
 	// Optimize BF to intermediate representation
 	_, ops := translate(rawBF)
-	program := Loop{NoLoop, ops}
-
-	fmt.Println("Done optimizing, running...")
-	initTime := time.Since(startTime)
+	//program := Loop{NoLoop, ops}
 
 	// Run all instructions
-	program.execute(&state)
+	//program.execute(&state)
+
+	//fmt.Println("Done optimizing, running...")
+	initTime := time.Since(startTime)
+
+	const bf = "brainfuck.c"
+
+	// Translate program to C code
+	c := programToC(ops)
+	ioutil.WriteFile(bf, c, 0733)
+
+	// Compile C code
+	gcc := exec.Command("gcc", bf, "-O1", "-o", "compiled")
+	gcc.Stdout = os.Stdout
+	gcc.Stderr = os.Stderr
+	err = gcc.Run()
+	if err != nil {
+		println(err.Error())
+	}
+
+	os.Rename(bf, bf+".txt")
+	compileTime := time.Since(startTime)
+
+	// Run compiled C code
+	program := exec.Command("./compiled")
+	program.Stdout = os.Stdout
+	program.Stderr = os.Stderr
+	program.Run()
+	if err != nil {
+		println(err.Error())
+	}
 
 	// Print output
 	if buffer {
@@ -57,13 +88,47 @@ func main() {
 
 	// Timing stuffs
 	runTime := time.Since(startTime)
-	fmt.Printf("\nOptimizing took %s.\nTotal took %s\n", initTime, runTime)
+	fmt.Printf("Loading BF code from file took  \t\t%s\n", loadTime)
+	fmt.Printf("Optimizing BF instructions took \t\t%s\n", initTime)
+	fmt.Printf("Writing to C file, and compiling took \t\t%s\n", compileTime)
+	fmt.Printf("Total took \t\t\t\t\t%s\n", runTime)
 
 	// Function call statistics
 	if statistics {
 		state.printStats()
 	}
 	return
+}
+
+const head = `
+#include <stdio.h>
+#include <stdint.h>
+#define BASESIZE 30000
+
+int main() {
+	//setbuf(stdout, NULL);
+
+	char mem[BASESIZE] = { 0 };
+
+	char *ptr = mem;
+	int counter = 0;
+`
+const foot = `
+}
+`
+
+func programToC(e []Executable) []byte {
+	var b bytes.Buffer
+
+	// Write head of the file
+	b.WriteString(head)
+
+	for _, o := range e {
+		o.toC(&b)
+	}
+	b.WriteString(foot)
+
+	return b.Bytes()
 }
 
 // numFmt formats very long integers as a string
@@ -167,6 +232,11 @@ func translate(s []byte) (Op, []Executable) {
 					count = -count
 				}
 				return NoLoop, append(make([]Executable, 0), OpWithArg{op: Seek, arg: count})
+			}
+
+			if count == 1 {
+				optimized = append(optimized, toOp(c))
+				continue
 			}
 
 			optimized = append(optimized, toOpWithArg(c, count))
